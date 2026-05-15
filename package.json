@@ -1,0 +1,22 @@
+{
+  "name": "opencode-review",
+  "version": "0.1.0",
+  "description": "A review agent plugin for OpenCode CLI - structured code review with configurable dimensions",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "echo \"TODO: add tests\" && exit 0"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "review",
+    "code-review",
+    "agent"
+  ],
+  "author": "sun-praise",
+  "license": "MIT",
+  "devDependencies": {
+    "@opencode-ai/plugin": "latest"
+  }
+}
