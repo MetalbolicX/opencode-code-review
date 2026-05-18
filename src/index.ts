@@ -8,14 +8,12 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
   const agentPrompt = buildAgentPrompt(config)
   const fixerPrompt = buildFixerPrompt(config)
 
-  // Loop prevention: tracks whether an auto-review is in progress
   let autoReviewActive = false
 
   return {
     config(openCodeConfig) {
       openCodeConfig.agent ??= {}
 
-      // Main review agent — can spawn fixer sub-agent via task tool
       openCodeConfig.agent["review"] = {
         mode: "primary",
         temperature: 0.1,
@@ -36,7 +34,6 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
         },
       }
 
-      // Fixer sub-agent — has write capabilities to apply fixes
       openCodeConfig.agent["review:fixer"] = {
         mode: "subagent",
         temperature: 0.2,
@@ -56,7 +53,7 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
       openCodeConfig.command["review"] = {
         agent: "review",
         description: "Review code changes with structured feedback",
-        prompt: agentPrompt,
+        template: agentPrompt,
       }
     },
 
@@ -66,18 +63,30 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
 
     event: async ({ event }) => {
       if (event.type === "session.idle" && config.trigger.auto_on_idle) {
-        // Prevent infinite loop: if an auto-review is already in progress,
-        // reset the flag and skip
         if (autoReviewActive) {
           autoReviewActive = false
           return
         }
         autoReviewActive = true
-        await client.chat.send({
-          message:
-            "Session completed. Running automatic code review on staged changes...",
-          agent: "review",
-        })
+        const ev = event as any
+        const sessionID = ev.properties?.sessionID ?? ev.properties?.id ?? ev.id
+
+        if (!sessionID) return
+
+        try {
+          await client.session.promptAsync({
+            body: {
+              agent: "review",
+              parts: [
+                {
+                  type: "text",
+                  text: "Session completed. Running automatic code review on staged changes...",
+                },
+              ],
+            },
+            path: { id: sessionID },
+          })
+        } catch {}
       }
     },
   }
