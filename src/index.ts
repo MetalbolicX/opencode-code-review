@@ -57,7 +57,7 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
           openCodeConfig.agent[dim.agentName] = {
             mode: "subagent",
             temperature: 0.1,
-            steps: 15,
+            steps: 30,
             tools: {
               write: false,
               edit: false,
