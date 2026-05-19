@@ -128,7 +128,7 @@ function buildDimensionPrompt(dimension: string, config: ReviewConfig): string {
 }
 
 export function getDimensionPrompts(config: ReviewConfig): DimensionPrompt[] {
-  return config.dimensions
+  return [...new Set(config.dimensions)]
     .filter((dim) => DIMENSIONS[dim])
     .map((dim) => ({
       name: dim,

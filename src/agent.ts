@@ -39,6 +39,58 @@ function buildCustomRules(rules: string[]): string {
   return `\n### Custom Rules\n${rules.map((r) => `- ${r}`).join("\n")}`
 }
 
+const REPORT_FORMAT: Record<string, string> = {
+  zh: `## 输出格式
+
+\`\`\`
+## 审查结果
+
+### 总体评价
+[简要描述代码质量]
+
+### 关键问题 :red_circle:
+[必须修复的问题，引用 file_path:line_number]
+
+### 建议改进 :yellow_circle:
+[可选的优化建议，引用 file_path:line_number]
+
+### 亮点 :white_check_mark:
+[代码中做得好的地方]
+\`\`\``,
+  en: `## Output Format
+
+\`\`\`
+## Review Results
+
+### Overall Assessment
+[Brief description of code quality]
+
+### Critical Issues :red_circle:
+[Must-fix issues, reference file_path:line_number]
+
+### Suggestions :yellow_circle:
+[Optional improvements, reference file_path:line_number]
+
+### Highlights :white_check_mark:
+[Good practices found in the code]
+\`\`\``,
+}
+
+const AUTO_FIX_INSTRUCTION: Record<string, string> = {
+  zh: `## 自动修复
+
+如果任何维度代理发现了关键问题（🔴），你必须：
+1. 汇总所有关键问题
+2. 使用 \`task\` 工具 spawn \`review:fixer\` 子代理，传入所有关键问题的修复指令
+3. 等待 fixer 完成修复`,
+  en: `## Auto-Fix
+
+If any dimension agent finds critical issues (🔴), you MUST:
+1. Collect all critical issues across dimensions
+2. Use the \`task\` tool to spawn a \`review:fixer\` sub-agent with combined fix instructions
+3. Wait for the fixer to complete`,
+}
+
 export function buildAgentPrompt(config: ReviewConfig): string {
   if (config.parallel) {
     return buildParallelPrompt(config)
@@ -47,11 +99,11 @@ export function buildAgentPrompt(config: ReviewConfig): string {
 }
 
 function buildParallelPrompt(config: ReviewConfig): string {
-  const isZh = config.language === "zh"
+  const lang = config.language === "zh" ? "zh" : "en"
   const dimensions = getDimensionPrompts(config)
   const dimensionList = dimensions.map((d) => `- ${d.agentName}: ${d.name}`).join("\n")
 
-  if (isZh) {
+  if (lang === "zh") {
     return `你是一个代码审查调度器。你的任务是并行调度多个维度审查子代理，收集结果，并生成统一报告。
 
 ## 可用维度代理
@@ -68,30 +120,9 @@ ${dimensionList}
 5. 对同一代码位置的重复发现进行合并
 6. 输出统一报告
 
-## 输出格式
+${REPORT_FORMAT.zh}
 
-\`\`\`
-## 审查结果
-
-### 总体评价
-[简要描述代码质量]
-
-### 关键问题 :red_circle:
-[必须修复的问题，引用 file_path:line_number]
-
-### 建议改进 :yellow_circle:
-[可选的优化建议，引用 file_path:line_number]
-
-### 亮点 :white_check_mark:
-[代码中做得好的地方]
-\`\`\`
-
-## 自动修复
-
-如果任何维度代理发现了关键问题（🔴），你必须：
-1. 汇总所有关键问题
-2. 使用 \`task\` 工具 spawn \`review:fixer\` 子代理，传入所有关键问题的修复指令
-3. 等待 fixer 完成修复`
+${AUTO_FIX_INSTRUCTION.zh}`
   }
 
   return `You are a code review orchestrator. Your task is to dispatch multiple dimension review sub-agents in parallel, collect results, and produce a unified report.
@@ -110,30 +141,9 @@ ${dimensionList}
 5. Deduplicate overlapping findings at the same code location
 6. Output a unified report
 
-## Output Format
+${REPORT_FORMAT.en}
 
-\`\`\`
-## Review Results
-
-### Overall Assessment
-[Brief description of code quality]
-
-### Critical Issues :red_circle:
-[Must-fix issues, reference file_path:line_number]
-
-### Suggestions :yellow_circle:
-[Optional improvements, reference file_path:line_number]
-
-### Highlights :white_check_mark:
-[Good practices found in the code]
-\`\`\`
-
-## Auto-Fix
-
-If any dimension agent finds critical issues (🔴), you MUST:
-1. Collect all critical issues across dimensions
-2. Use the \`task\` tool to spawn a \`review:fixer\` sub-agent with combined fix instructions
-3. Wait for the fixer to complete`
+${AUTO_FIX_INSTRUCTION.en}`
 }
 
 function buildSinglePrompt(config: ReviewConfig): string {
