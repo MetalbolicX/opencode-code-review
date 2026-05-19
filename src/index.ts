@@ -57,14 +57,12 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
         template: agentPrompt,
       }
 
-      const togglePrompt = buildTogglePrompt(config)
-
       openCodeConfig.command["review:auto"] = {
         agent: "review",
         description: config.language === "zh"
           ? "切换自动审查开关（on/off）"
           : "Toggle auto-review on/off",
-        template: togglePrompt,
+        template: buildTogglePrompt(config),
       }
     },
 
