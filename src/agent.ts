@@ -24,7 +24,7 @@ const DIMENSION_LABELS: Record<string, { zh: string; en: string }> = {
   },
 }
 
-function buildDimensionList(config: ReviewConfig): string {
+const buildDimensionList = (config: ReviewConfig): string => {
   const lang = config.language === "zh" ? "zh" : "en"
   return config.dimensions
     .map((d) => {
@@ -34,7 +34,7 @@ function buildDimensionList(config: ReviewConfig): string {
     .join("\n")
 }
 
-function buildCustomRules(rules: string[]): string {
+const buildCustomRules = (rules: string[]): string => {
   if (rules.length === 0) return ""
   return `\n### Custom Rules\n${rules.map((r) => `- ${r}`).join("\n")}`
 }
@@ -91,14 +91,14 @@ If any dimension agent finds critical issues (🔴), you MUST:
 3. Wait for the fixer to complete`,
 }
 
-export function buildAgentPrompt(config: ReviewConfig): string {
+export const buildAgentPrompt = (config: ReviewConfig): string => {
   if (config.parallel) {
     return buildParallelPrompt(config)
   }
   return buildSinglePrompt(config)
 }
 
-function buildParallelPrompt(config: ReviewConfig): string {
+const buildParallelPrompt = (config: ReviewConfig): string => {
   const lang = config.language === "zh" ? "zh" : "en"
   const dimensions = getDimensionPrompts(config)
   const dimensionList = dimensions.map((d) => `- ${d.agentName}: ${d.name}`).join("\n")
@@ -264,7 +264,7 @@ Fix the following critical issues:
 4. If no critical issues, do not spawn the fixer`
 }
 
-export function buildFixerPrompt(config: ReviewConfig): string {
+export const buildFixerPrompt = (config: ReviewConfig): string => {
   const isZh = config.language === "zh"
 
   if (isZh) {
@@ -320,7 +320,7 @@ If an issue cannot be safely fixed:
 \`\`\``
 }
 
-export function buildTogglePrompt(config: ReviewConfig): string {
+export const buildTogglePrompt = (config: ReviewConfig): string => {
   if (config.language === "zh") {
     return `用户请求切换自动审查功能。请立即调用 \`toggle_auto_review\` 工具完成操作，不要做其他事情。
 

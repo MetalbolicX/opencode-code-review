@@ -1,6 +1,6 @@
 import { tool } from "@opencode-ai/plugin"
 
-export function createToggleAutoReviewTool(getState: () => boolean, setState: (v: boolean) => void) {
+export const createToggleAutoReviewTool = (getState: () => boolean, setState: (v: boolean) => void) => {
   return tool({
     description:
       "Toggle or query the auto-review on/off state. Call without args to check current state, or with 'enabled' to set it.",

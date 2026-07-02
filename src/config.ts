@@ -34,7 +34,7 @@ const DEFAULT_CONFIG: ReviewConfig = {
 
 const CONFIG_FILENAME = "review.json"
 
-async function readJsonFile(path: string): Promise<Partial<ReviewConfig> | null> {
+const readJsonFile = async (path: string): Promise<Partial<ReviewConfig> | null> => {
   try {
     const content = await readFile(path, "utf-8")
     return JSON.parse(content)
@@ -43,9 +43,9 @@ async function readJsonFile(path: string): Promise<Partial<ReviewConfig> | null>
   }
 }
 
-export async function loadConfig(
+export const loadConfig = async (
   projectDir: string,
-): Promise<ReviewConfig> {
+): Promise<ReviewConfig> => {
   const globalPath = join(homedir(), ".config", "opencode", CONFIG_FILENAME)
   const projectPath = join(projectDir, ".opencode", CONFIG_FILENAME)
 

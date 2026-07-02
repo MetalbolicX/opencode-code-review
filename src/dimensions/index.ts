@@ -120,19 +120,18 @@ For each finding, use:
 If no issues found, output "No issues found for this dimension."`,
 }
 
-function buildDimensionPrompt(dimension: string, config: ReviewConfig): string {
+const buildDimensionPrompt = (dimension: string, config: ReviewConfig): string => {
   const content = DIMENSIONS[dimension]
   if (!content) return ""
   const lang = config.language === "zh" ? "zh" : "en"
   return content[lang] + "\n\n" + OUTPUT_FORMAT[lang]
 }
 
-export function getDimensionPrompts(config: ReviewConfig): DimensionPrompt[] {
-  return [...new Set(config.dimensions)]
+export const getDimensionPrompts = (config: ReviewConfig): DimensionPrompt[] =>
+  [...new Set(config.dimensions)]
     .filter((dim) => DIMENSIONS[dim])
     .map((dim) => ({
       name: dim,
       agentName: `review:dim-${dim}`,
       prompt: buildDimensionPrompt(dim, config),
     }))
-}

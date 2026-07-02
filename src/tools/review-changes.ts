@@ -71,7 +71,7 @@ export const reviewChanges = tool({
   },
 })
 
-async function runCommand($: any, cmd: string): Promise<CommandResult> {
+const runCommand = async ($: any, cmd: string): Promise<CommandResult> => {
   try {
     const result = await $`bash -c ${cmd}`.quiet()
     const stdout = result.stdout ?? ""
@@ -82,7 +82,7 @@ async function runCommand($: any, cmd: string): Promise<CommandResult> {
   }
 }
 
-async function getDefaultBranch($: any): Promise<string> {
+const getDefaultBranch = async ($: any): Promise<string> => {
   try {
     const result = await $`git symbolic-ref refs/remotes/origin/HEAD`.quiet()
     const raw = (result.stdout ?? "").trim()
