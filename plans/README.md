@@ -11,15 +11,22 @@ honor its STOP conditions, and update your row when done.
 | 001  | Surface git and auto-review failures instead of swallowing them | P1 | S | — | DONE |
 | 002  | Remove shell-assembled branch diff commands | P1 | S | — | DONE |
 | 003  | Align plugin dependency and lockfile state | P1 | S | — | DONE |
+| 004  | Add reproducible verification scripts and toolchain | P1 | M | — | DONE |
+| 005  | Add minimal high-ROI test coverage | P1 | M | 004 | DONE |
+| 006  | Split `src/agent.ts` into smaller prompt modules without changing behavior | P2 | M | 004, 005 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
 ## Dependency notes
 
-- These plans are intentionally independent because the repo currently lacks a reliable verification baseline.
-- If Plan 003 changes install behavior, rerun the optional typecheck checks in Plans 001 and 002 before merging them.
+- Plans 001–003 are complete and merged to `main`.
+- 004 has no dependencies — it establishes the verification baseline (typecheck, lint, build).
+- 005 depends on 004 because the test runner (`vitest`) is installed via the toolchain plan, and `pnpm verify` must include tests.
+- 006 depends on both 004 and 005 — it is a pure refactor, and the tests from 005 serve as the regression guard proving no prompt drift.
+- Execute in order: 004 → 005 → 006. Do not run 006 before 005; without tests, the refactor has no safety net.
 
 ## Findings considered and rejected
 
 - Custom-dimension UX drift: real but lower leverage than verification, shell safety, and dependency reproducibility.
-- Split `src/agent.ts`: worthwhile tech debt, but lower ROI than the top 3 plans above.
+- CI gate beyond AI review: folded into Plan 004 (adding typecheck/lint/build steps to the existing workflow).
+- Real E2E tests against OpenCode host: rejected for now — expensive and brittle; revisit after unit/integration baseline exists.

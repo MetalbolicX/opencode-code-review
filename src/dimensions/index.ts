@@ -1,9 +1,9 @@
-import type { ReviewConfig } from "../config.ts"
+import type { ReviewConfig } from "../config.ts";
 
 export interface DimensionPrompt {
-  name: string
-  agentName: string
-  prompt: string
+  name: string;
+  agentName: string;
+  prompt: string;
 }
 
 const DIMENSIONS: Record<string, { zh: string; en: string }> = {
@@ -25,7 +25,7 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Duplication: extractable repeated logic
 - Error handling: appropriate exception handling`,
   },
-  "security": {
+  security: {
     zh: `你是一个专注于**安全性**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
 
 ## 审查要点
@@ -45,7 +45,7 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Cryptography: secure algorithms and protocols
 - Dependency security: known vulnerable dependencies`,
   },
-  "performance": {
+  performance: {
     zh: `你是一个专注于**性能**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
 
 ## 审查要点
@@ -65,7 +65,7 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Caching: appropriate cache usage and strategies
 - Concurrency: race conditions, lock granularity`,
   },
-  "testing": {
+  testing: {
     zh: `你是一个专注于**测试**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
 
 ## 审查要点
@@ -83,7 +83,7 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Test quality: meaningful assertions, appropriate mocking
 - Regression risk: could changes break existing tests`,
   },
-  "documentation": {
+  documentation: {
     zh: `你是一个专注于**文档**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
 
 ## 审查要点
@@ -101,7 +101,7 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Type docs: TypeScript types self-explanatory, complex types documented
 - Examples: usage examples needed for new features`,
   },
-}
+};
 
 const OUTPUT_FORMAT: Record<string, string> = {
   zh: `## 输出格式
@@ -118,14 +118,17 @@ For each finding, use:
 - ✅ **[file_path:line_number]** Highlight: description
 
 If no issues found, output "No issues found for this dimension."`,
-}
+};
 
-const buildDimensionPrompt = (dimension: string, config: ReviewConfig): string => {
-  const content = DIMENSIONS[dimension]
-  if (!content) return ""
-  const lang = config.language === "zh" ? "zh" : "en"
-  return content[lang] + "\n\n" + OUTPUT_FORMAT[lang]
-}
+const buildDimensionPrompt = (
+  dimension: string,
+  config: ReviewConfig,
+): string => {
+  const content = DIMENSIONS[dimension];
+  if (!content) return "";
+  const lang = config.language === "zh" ? "zh" : "en";
+  return `${content[lang]}\n\n${OUTPUT_FORMAT[lang]}`;
+};
 
 export const getDimensionPrompts = (config: ReviewConfig): DimensionPrompt[] =>
   [...new Set(config.dimensions)]
@@ -134,4 +137,4 @@ export const getDimensionPrompts = (config: ReviewConfig): DimensionPrompt[] =>
       name: dim,
       agentName: `review:dim-${dim}`,
       prompt: buildDimensionPrompt(dim, config),
-    }))
+    }));

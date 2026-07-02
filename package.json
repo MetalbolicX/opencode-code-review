@@ -5,7 +5,12 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"TODO: add tests\" && exit 0"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit --allowImportingTsExtensions",
+    "lint": "biome check src/",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test"
   },
   "keywords": [
     "opencode",
@@ -17,6 +22,10 @@
   "author": "sun-praise",
   "license": "MIT",
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.17.13"
+    "@biomejs/biome": "^2.5.2",
+    "@opencode-ai/plugin": "^1.17.13",
+    "@types/node": "^22.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }

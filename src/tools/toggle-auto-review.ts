@@ -1,20 +1,24 @@
-import { tool } from "@opencode-ai/plugin"
+import { tool } from "@opencode-ai/plugin";
+import type { ToolDefinition } from "@opencode-ai/plugin";
 
-export const createToggleAutoReviewTool = (getState: () => boolean, setState: (v: boolean) => void) => {
-  return tool({
+export const createToggleAutoReviewTool = (
+  getState: () => boolean,
+  setState: (v: boolean) => void,
+): ToolDefinition =>
+  tool({
     description:
       "Toggle or query the auto-review on/off state. Call without args to check current state, or with 'enabled' to set it.",
     args: {
-      enabled: tool.schema.boolean().optional().describe(
-        "Set auto-review state. Omit to query current state.",
-      ),
+      enabled: tool.schema
+        .boolean()
+        .optional()
+        .describe("Set auto-review state. Omit to query current state."),
     },
     async execute(args) {
       if (args.enabled === undefined) {
-        return `Auto-review is currently ${getState() ? "ON" : "OFF"}.`
+        return `Auto-review is currently ${getState() ? "ON" : "OFF"}.`;
       }
-      setState(args.enabled)
-      return `Auto-review is now ${args.enabled ? "ON" : "OFF"}.`
+      setState(args.enabled);
+      return `Auto-review is now ${args.enabled ? "ON" : "OFF"}.`;
     },
-  })
-}
+  });

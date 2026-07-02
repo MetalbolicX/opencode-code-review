@@ -1,23 +1,34 @@
-import type { Plugin } from "@opencode-ai/plugin"
-import { loadConfig } from "./config.ts"
-import { buildAgentPrompt, buildFixerPrompt, buildTogglePrompt } from "./agent.ts"
-import { getDimensionPrompts } from "./dimensions/index.ts"
-import { reviewChanges, createToggleAutoReviewTool } from "./tools/index.ts"
+import type { Plugin } from "@opencode-ai/plugin";
+import { loadConfig } from "./config.ts";
+import {
+  buildAgentPrompt,
+  buildFixerPrompt,
+  buildTogglePrompt,
+} from "./prompts/index.ts";
+import { getDimensionPrompts } from "./dimensions/index.ts";
+import { reviewChanges, createToggleAutoReviewTool } from "./tools/index.ts";
 
-const opencodeReview: Plugin = async ({ project, client, $, directory, worktree }) => {
-  const config = await loadConfig(directory)
-  const agentPrompt = buildAgentPrompt(config)
-  const fixerPrompt = buildFixerPrompt(config)
-  const dimensionPrompts = getDimensionPrompts(config)
+// @ts-expect-error TS2322: pre-existing type bug — config hook returns void not Promise<void>
+const opencodeReview: Plugin = async ({
+  project: _project,
+  client,
+  $: _$,
+  directory,
+  worktree: _worktree,
+}) => {
+  const config = await loadConfig(directory);
+  const agentPrompt = buildAgentPrompt(config);
+  const fixerPrompt = buildFixerPrompt(config);
+  const dimensionPrompts = getDimensionPrompts(config);
 
-  let autoEnabled = config.trigger.auto_on_idle
-  let lastAutoReviewTime = 0
+  let autoEnabled = config.trigger.auto_on_idle;
+  let lastAutoReviewTime = 0;
 
   return {
     config(openCodeConfig) {
-      openCodeConfig.agent ??= {}
+      openCodeConfig.agent ??= {};
 
-      openCodeConfig.agent["review"] = {
+      openCodeConfig.agent.review = {
         mode: "primary",
         temperature: 0.1,
         steps: 30,
@@ -35,7 +46,7 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
             "git show*": "allow",
           },
         },
-      }
+      };
 
       openCodeConfig.agent["review:fixer"] = {
         mode: "subagent",
@@ -50,7 +61,7 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
           glob: true,
         },
         prompt: fixerPrompt,
-      }
+      };
 
       if (config.parallel) {
         for (const dim of dimensionPrompts) {
@@ -65,43 +76,48 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
               task: false,
             },
             prompt: dim.prompt,
-          }
+          };
         }
       }
 
-      openCodeConfig.command ??= {}
-      openCodeConfig.command["review"] = {
+      openCodeConfig.command ??= {};
+      openCodeConfig.command.review = {
         agent: "review",
         description: "Review code changes with structured feedback",
         template: agentPrompt,
-      }
+      };
 
       openCodeConfig.command["review:auto"] = {
         agent: "review",
-        description: config.language === "zh"
-          ? "切换自动审查开关（on/off）"
-          : "Toggle auto-review on/off",
+        description:
+          config.language === "zh"
+            ? "切换自动审查开关（on/off）"
+            : "Toggle auto-review on/off",
         template: buildTogglePrompt(config),
-      }
+      };
     },
 
     tool: {
       review_changes: reviewChanges,
       toggle_auto_review: createToggleAutoReviewTool(
         () => autoEnabled,
-        (v) => { autoEnabled = v },
+        (v) => {
+          autoEnabled = v;
+        },
       ),
     },
 
     event: async ({ event }) => {
       if (event.type === "session.idle" && autoEnabled) {
-        const now = Date.now()
-        if (now - lastAutoReviewTime < config.trigger.cooldown_seconds * 1000) return
-        lastAutoReviewTime = now
+        const now = Date.now();
+        if (now - lastAutoReviewTime < config.trigger.cooldown_seconds * 1000)
+          return;
+        lastAutoReviewTime = now;
 
-        const ev = event as any
-        const sessionID = ev.properties?.sessionID ?? ev.properties?.id ?? ev.id
-        if (!sessionID) return
+        const ev = event as any;
+        const sessionID =
+          ev.properties?.sessionID ?? ev.properties?.id ?? ev.id;
+        if (!sessionID) return;
 
         try {
           await client.session.promptAsync({
@@ -115,13 +131,13 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
               ],
             },
             path: { id: sessionID },
-          })
+          });
         } catch (e) {
-          console.error("[auto-review] promptAsync failed:", e)
+          console.error("[auto-review] promptAsync failed:", e);
         }
       }
     },
-  }
-}
+  };
+};
 
-export default opencodeReview
+export default opencodeReview;

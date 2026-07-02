@@ -37,6 +37,18 @@ Add to your `opencode.json`:
 }
 ```
 
+## Development
+
+Requires Node.js 18+ and pnpm.
+
+```bash
+pnpm install          # Install dependencies
+pnpm typecheck       # Type-check TypeScript
+pnpm lint            # Lint with Biome
+pnpm build           # Compile to dist/
+pnpm verify          # Run all checks (typecheck, lint, build, test)
+```
+
 ## Usage
 
 ### Slash Command

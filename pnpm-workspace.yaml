@@ -1,5 +1,15 @@
 allowBuilds:
+  '@biomejs/biome': false
   msgpackr-extract: true
 minimumReleaseAgeExclude:
   - '@opencode-ai/plugin@1.17.13'
   - '@opencode-ai/sdk@1.17.13'
+  - '@biomejs/biome@2.5.2'
+  - '@biomejs/cli-darwin-arm64@2.5.2'
+  - '@biomejs/cli-darwin-x64@2.5.2'
+  - '@biomejs/cli-linux-arm64-musl@2.5.2'
+  - '@biomejs/cli-linux-arm64@2.5.2'
+  - '@biomejs/cli-linux-x64-musl@2.5.2'
+  - '@biomejs/cli-linux-x64@2.5.2'
+  - '@biomejs/cli-win32-arm64@2.5.2'
+  - '@biomejs/cli-win32-x64@2.5.2'

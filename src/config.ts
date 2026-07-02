@@ -1,17 +1,17 @@
-import { readFile } from "node:fs/promises"
-import { join } from "node:path"
-import { homedir } from "node:os"
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface ReviewConfig {
-  language: string
-  dimensions: string[]
-  max_diff_lines: number
+  language: string;
+  dimensions: string[];
+  max_diff_lines: number;
   trigger: {
-    auto_on_idle: boolean
-    cooldown_seconds: number
-  }
-  custom_rules: string[]
-  parallel: boolean
+    auto_on_idle: boolean;
+    cooldown_seconds: number;
+  };
+  custom_rules: string[];
+  parallel: boolean;
 }
 
 const DEFAULT_CONFIG: ReviewConfig = {
@@ -30,29 +30,29 @@ const DEFAULT_CONFIG: ReviewConfig = {
   },
   custom_rules: [],
   parallel: true,
-}
+};
 
-const CONFIG_FILENAME = "review.json"
+const CONFIG_FILENAME = "review.json";
 
-const readJsonFile = async (path: string): Promise<Partial<ReviewConfig> | null> => {
+const readJsonFile = async (
+  path: string,
+): Promise<Partial<ReviewConfig> | null> => {
   try {
-    const content = await readFile(path, "utf-8")
-    return JSON.parse(content)
+    const content = await readFile(path, "utf-8");
+    return JSON.parse(content);
   } catch {
-    return null
+    return null;
   }
-}
+};
 
-export const loadConfig = async (
-  projectDir: string,
-): Promise<ReviewConfig> => {
-  const globalPath = join(homedir(), ".config", "opencode", CONFIG_FILENAME)
-  const projectPath = join(projectDir, ".opencode", CONFIG_FILENAME)
+export const loadConfig = async (projectDir: string): Promise<ReviewConfig> => {
+  const globalPath = join(homedir(), ".config", "opencode", CONFIG_FILENAME);
+  const projectPath = join(projectDir, ".opencode", CONFIG_FILENAME);
 
   const [globalCfg, projectCfg] = await Promise.all([
     readJsonFile(globalPath),
     readJsonFile(projectPath),
-  ])
+  ]);
 
   return {
     ...DEFAULT_CONFIG,
@@ -63,5 +63,5 @@ export const loadConfig = async (
       ...(globalCfg?.trigger ?? {}),
       ...(projectCfg?.trigger ?? {}),
     },
-  }
-}
+  };
+};
