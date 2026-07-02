@@ -1,5 +1,9 @@
 import { tool } from "@opencode-ai/plugin"
 
+type CommandResult = { ok: true; stdout: string } | { ok: false; error: string }
+
+const SAFE_BRANCH_REGEX = /^[a-zA-Z0-9._\/\-]+$/
+
 export const reviewChanges = tool({
   description:
     "Gather git diff for code review. Returns file list, change stats, and diff content.",
@@ -16,8 +20,8 @@ export const reviewChanges = tool({
     const scope = args.scope ?? "staged"
     const maxLines = args.max_lines ?? 500
 
-    let diffResult: string
-    let statsResult: string
+    let diffResult: CommandResult
+    let statsResult: CommandResult
 
     switch (scope) {
       case "staged":
@@ -30,14 +34,24 @@ export const reviewChanges = tool({
         break
       case "branch": {
         const defaultBranch = await getDefaultBranch($)
-        diffResult = await runCommand($, `git diff ${defaultBranch}...HEAD`)
-        statsResult = await runCommand($, `git diff ${defaultBranch}...HEAD --stat`)
+        if (!SAFE_BRANCH_REGEX.test(defaultBranch)) {
+          return `[Error] Unsafe default branch name: "${defaultBranch}"`
+        }
+        diffResult = await runCommand($, "git diff " + defaultBranch + "...HEAD")
+        statsResult = await runCommand($, "git diff " + defaultBranch + "...HEAD --stat")
         break
       }
     }
 
-    let diff = diffResult
-    const stats = statsResult
+    if (!diffResult.ok) {
+      return `[Error] Git diff failed for scope "${scope}": ${diffResult.error}`
+    }
+    if (!statsResult.ok) {
+      return `[Error] Git diff --stat failed for scope "${scope}": ${statsResult.error}`
+    }
+
+    let diff = diffResult.stdout
+    const stats = statsResult.stdout
 
     const truncated = diff.split("\n").length > maxLines
     if (truncated) {
@@ -57,20 +71,29 @@ export const reviewChanges = tool({
   },
 })
 
-async function runCommand($: any, cmd: string): Promise<string> {
+async function runCommand($: any, cmd: string): Promise<CommandResult> {
   try {
     const result = await $`bash -c ${cmd}`.quiet()
-    return result.stdout ?? ""
-  } catch {
-    return ""
+    const stdout = result.stdout ?? ""
+    return { ok: true, stdout }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: message }
   }
 }
 
 async function getDefaultBranch($: any): Promise<string> {
   try {
-    const result = await $`bash -c 'git remote show origin'`.quiet()
-    const match = (result.stdout ?? "").match(/HEAD branch: (.+)/)
-    if (match) return match[1]
+    const result = await $`git symbolic-ref refs/remotes/origin/HEAD`.quiet()
+    const raw = (result.stdout ?? "").trim()
+    const prefix = "refs/remotes/origin/"
+    if (raw.startsWith(prefix)) {
+      return raw.slice(prefix.length)
+    }
+    if (raw.startsWith("refs/heads/")) {
+      return raw.slice("refs/heads/".length)
+    }
+    return raw
   } catch {
     // fallback
   }

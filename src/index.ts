@@ -116,7 +116,9 @@ const opencodeReview: Plugin = async ({ project, client, $, directory, worktree 
             },
             path: { id: sessionID },
           })
-        } catch {}
+        } catch (e) {
+          console.error("[auto-review] promptAsync failed:", e)
+        }
       }
     },
   }

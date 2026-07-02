@@ -17,6 +17,6 @@
   "author": "sun-praise",
   "license": "MIT",
   "devDependencies": {
-    "@opencode-ai/plugin": "latest"
+    "@opencode-ai/plugin": "^1.17.13"
   }
 }

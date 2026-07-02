@@ -1,0 +1,5 @@
+allowBuilds:
+  msgpackr-extract: true
+minimumReleaseAgeExclude:
+  - '@opencode-ai/plugin@1.17.13'
+  - '@opencode-ai/sdk@1.17.13'
