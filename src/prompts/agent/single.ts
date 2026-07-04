@@ -1,15 +1,21 @@
 import type { ReviewConfig } from "../../config.ts";
-import { buildDimensionList, buildCustomRules } from "../shared.ts";
+import {
+  buildDimensionList,
+  buildCustomRules,
+  buildFileRules,
+} from "../shared.ts";
 
 function buildSinglePrompt(config: ReviewConfig): string {
   const isZh = config.language === "zh";
+  const lang: "zh" | "en" = isZh ? "zh" : "en";
+  const fileRulesSection = buildFileRules(config.file_rules, "all", lang);
 
   if (isZh) {
     return `你是一个专业的代码审查员。请使用 \`review_changes\` 工具获取代码变更，然后进行审查。
 
 ## 审查维度
 ${buildDimensionList(config)}
-${buildCustomRules(config.custom_rules)}
+${buildCustomRules(config.custom_rules)}${fileRulesSection}
 
 ## 工作流程
 1. 调用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
@@ -66,7 +72,7 @@ ${buildCustomRules(config.custom_rules)}
 
 ## Review Dimensions
 ${buildDimensionList(config)}
-${buildCustomRules(config.custom_rules)}
+${buildCustomRules(config.custom_rules)}${fileRulesSection}
 
 ## Workflow
 1. Call \`review_changes\` tool to get the diff (default scope is "staged")

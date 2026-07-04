@@ -5,6 +5,21 @@ vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
+vi.mock("./rule-files.ts", () => ({
+  KNOWN_DIMENSIONS: new Set([
+    "code-quality",
+    "security",
+    "performance",
+    "testing",
+    "documentation",
+    "error-handling",
+    "api-design",
+    "dependencies",
+    "maintainability",
+  ]),
+  loadRuleFiles: vi.fn().mockReturnValue([]),
+}));
+
 const { readFile } = await import("node:fs/promises");
 
 const defaultConfig = {
@@ -19,6 +34,7 @@ const defaultConfig = {
   max_diff_lines: 500,
   trigger: { auto_on_idle: false, cooldown_seconds: 120 },
   custom_rules: [] as string[],
+  file_rules: [] as unknown as never[],
   parallel: true,
 };
 

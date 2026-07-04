@@ -1,7 +1,12 @@
 import type { ReviewConfig } from "../config.ts";
+import { buildFileRules } from "./shared.ts";
 
 export const buildFixerPrompt = (config: ReviewConfig): string => {
   const isZh = config.language === "zh";
+  // The fixer only needs general rules; dimension-scoped rules belong in
+  // the dimension sub-agent that found the issue, not in the fixer.
+  const lang: "zh" | "en" = isZh ? "zh" : "en";
+  const generalRulesSection = buildFileRules(config.file_rules, "general", lang);
 
   if (isZh) {
     return `你是一个代码修复代理。你会收到审查发现的关键问题列表，你的任务是修复这些问题。
@@ -27,7 +32,7 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
 如果某个问题无法安全修复：
 \`\`\`
 ⚠️ [file_path:line_number] 无法修复：原因说明
-\`\`\``;
+\`\`\`${generalRulesSection}`;
   }
 
   return `You are a code fixer agent. You receive a list of critical issues found during code review, and your task is to fix them.
@@ -53,5 +58,5 @@ For each fix:
 If an issue cannot be safely fixed:
 \`\`\`
 ⚠️ [file_path:line_number] Cannot fix: reason
-\`\`\``;
+\`\`\`${generalRulesSection}`;
 };

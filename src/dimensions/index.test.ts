@@ -29,6 +29,7 @@ const baseConfig: ReviewConfig = {
   max_diff_lines: 500,
   trigger: { auto_on_idle: false, cooldown_seconds: 120 },
   custom_rules: [],
+  file_rules: [],
   parallel: true,
 };
 

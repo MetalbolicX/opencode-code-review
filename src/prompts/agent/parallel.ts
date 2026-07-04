@@ -1,5 +1,9 @@
 import type { ReviewConfig } from "../../config.ts";
 import { getDimensionPrompts } from "../../dimensions/index.ts";
+import {
+  buildFileRules,
+  buildScopedRuleSummary,
+} from "../shared.ts";
 import { buildSinglePrompt } from "./single.ts";
 
 const REPORT_FORMAT: Record<string, string> = {
@@ -56,10 +60,15 @@ If any dimension agent finds critical issues (🔴), you MUST:
 
 const buildParallelPrompt = (config: ReviewConfig): string => {
   const lang = config.language === "zh" ? "zh" : "en";
-  const dimensions = getDimensionPrompts(config);
+  const dimensions = getDimensionPrompts(config, config.file_rules);
   const dimensionList = dimensions
     .map((d) => `- ${d.agentName}: ${d.name}`)
     .join("\n");
+  // Orchestrator sees general rules inline + a compact map of which
+  // scoped files cover which dimensions. The dimension bodies themselves
+  // already reach sub-agents via `getDimensionPrompts(config, file_rules)`.
+  const generalRulesSection = buildFileRules(config.file_rules, "general", lang);
+  const scopedSummarySection = buildScopedRuleSummary(config.file_rules, lang);
 
   if (lang === "zh") {
     return `你是一个代码审查调度器。你的任务是并行调度多个维度审查子代理，收集结果，并生成统一报告。
@@ -77,6 +86,7 @@ ${dimensionList}
    - 关键问题（🔴）→ 建议改进（🟡）→ 亮点（✅）
 5. 对同一代码位置的重复发现进行合并
 6. 输出统一报告
+${generalRulesSection}${scopedSummarySection}
 
 ${REPORT_FORMAT.zh}
 
@@ -98,6 +108,7 @@ ${dimensionList}
    - Critical (🔴) → Suggestions (🟡) → Highlights (✅)
 5. Deduplicate overlapping findings at the same code location
 6. Output a unified report
+${generalRulesSection}${scopedSummarySection}
 
 ${REPORT_FORMAT.en}
 
