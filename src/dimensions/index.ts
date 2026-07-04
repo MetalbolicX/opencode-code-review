@@ -1,3 +1,4 @@
+import type { RuleFile } from "../rule-files.ts";
 import type { ReviewConfig } from "../config.ts";
 
 export interface DimensionPrompt {
@@ -5,6 +6,16 @@ export interface DimensionPrompt {
   agentName: string;
   prompt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Built-in dimensions
+//
+// Each entry holds the body of the system prompt for that dimension in both
+// `zh` and `en`. Keep bullets short and parallel across languages so the
+// prompts feel uniform to a reviewer scrolling through them. Adding a new
+// built-in dimension is a 1-block change here plus a registry update in
+// `src/rule-files.ts` (so the loader recognises its name in frontmatter).
+// ---------------------------------------------------------------------------
 
 const DIMENSIONS: Record<string, { zh: string; en: string }> = {
   "code-quality": {
@@ -101,6 +112,78 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Type docs: TypeScript types self-explanatory, complex types documented
 - Examples: usage examples needed for new features`,
   },
+  "error-handling": {
+    zh: `你是一个专注于**错误处理**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
+
+## 审查要点
+- 异常捕获：是否捕获了恰当的异常类型，避免过宽或过窄
+- 错误传播：错误是否沿调用栈合理向上传递，没有被吞掉
+- 错误信息：是否提供了足够定位问题的上下文（操作、参数、原因）
+- 资源释放：异常路径下是否能保证文件/连接/锁被释放
+- 失败默认值：失败时是否退回到安全的默认行为`,
+    en: `You are an expert reviewer focused on **error handling**. Use the \`review_changes\` tool to get code changes, then review them.
+
+## Review Focus
+- Catch scope: catch the right exception types, not too broad or narrow
+- Error propagation: errors flow up the call stack instead of being swallowed
+- Error messages: actionable context (operation, inputs, root cause)
+- Resource release: files / connections / locks released on the error path
+- Safe defaults: failure modes fall back to safe defaults, not undefined`,
+  },
+  "api-design": {
+    zh: `你是一个专注于**API 设计**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
+
+## 审查要点
+- 一致性：命名、参数顺序、错误返回是否符合现有 API 风格
+- 向后兼容：是否破坏既有签名、字段或错误码
+- 可演化性：未来扩展时是否需要 breaking change
+- 幂等性：可重复调用是否安全
+- 文档可推断：从签名和类型能否清楚知道行为`,
+    en: `You are an expert reviewer focused on **API design**. Use the \`review_changes\` tool to get code changes, then review them.
+
+## Review Focus
+- Consistency: naming, parameter order, error shape match existing APIs
+- Backward compatibility: signatures, fields, and error codes are preserved
+- Evolvability: future changes do not require a breaking release
+- Idempotency: repeated calls are safe
+- Self-documenting: signature and types convey behavior without prose`,
+  },
+  dependencies: {
+    zh: `你是一个专注于**依赖**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
+
+## 审查要点
+- 新增依赖：是否真的需要，还是可以用标准库/已有依赖完成
+- 维护活跃度：包是否仍在维护、是否有大量未解决的 issue
+- 体积与传递依赖：是否会引入过大的依赖树
+- 许可证：是否与项目许可证兼容
+- 锁定版本：是否锁定了具体版本、是否会拉入意外升级`,
+    en: `You are an expert reviewer focused on **dependencies**. Use the \`review_changes\` tool to get code changes, then review them.
+
+## Review Focus
+- Necessity: does it justify its existence vs. the stdlib or existing deps
+- Maintenance: package is actively maintained, no abandoned issue backlog
+- Bundle footprint: dependency tree size is reasonable for what is used
+- License: compatible with the project's license
+- Pinning: versions are pinned to avoid surprise upgrades`,
+  },
+  maintainability: {
+    zh: `你是一个专注于**可维护性**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
+
+## 审查要点
+- 可读性：新读者能否在合理时间内理解意图
+- 改动局部性：本次修改是否需要触碰大量无关代码
+- 测试可达性：是否容易写出有意义的测试
+- 调试友好：日志、错误、断言是否足以定位问题
+- 删除成本：未来删除或替换这部分代码是否容易`,
+    en: `You are an expert reviewer focused on **maintainability**. Use the \`review_changes\` tool to get code changes, then review them.
+
+## Review Focus
+- Readability: a new contributor can grasp intent within a reasonable time
+- Locality: change touches only the code it must, no scattered edits
+- Testability: meaningful tests are easy to write
+- Debuggability: logs, errors, and assertions are enough to localize issues
+- Cost of removal: future replacement or deletion is cheap`,
+  },
 };
 
 const OUTPUT_FORMAT: Record<string, string> = {
@@ -120,21 +203,89 @@ For each finding, use:
 If no issues found, output "No issues found for this dimension."`,
 };
 
+/** Header for the rule-document section appended to each dimension prompt. */
+const RULES_HEADER: Record<string, string> = {
+  zh: "## 附加规则",
+  en: "## Review Rules",
+};
+
+// ---------------------------------------------------------------------------
+// Rule injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Select rule documents that should appear in the prompt for `dimension`.
+ *
+ * - General rules (`dimensions: []`) appear in every dimension prompt.
+ * - Scoped rules appear only when the current dimension is listed.
+ *
+ * Within each group the loader's order is preserved (already a deterministic
+ * global-then-project, numbered-then-alphabetical sort).
+ */
+const rulesForDimension = (
+  dimension: string,
+  rules: readonly RuleFile[],
+): RuleFile[] => {
+  const scoped: RuleFile[] = [];
+  const general: RuleFile[] = [];
+  for (const r of rules) {
+    if (r.dimensions.length === 0) general.push(r);
+    else if (r.dimensions.includes(dimension)) scoped.push(r);
+  }
+  // Dimension-scoped rules land first so the dimension-specific guidance
+  // reads as the primary instruction; general guidance rounds out the prompt.
+  return [...scoped, ...general];
+};
+
+/**
+ * Render the rule-document section. Returns an empty string when no rules
+ * apply, so callers can skip the section header cleanly.
+ */
+const renderRulesSection = (
+  dimension: string,
+  rules: readonly RuleFile[],
+  lang: "zh" | "en",
+): string => {
+  const applicable = rulesForDimension(dimension, rules);
+  if (applicable.length === 0) return "";
+  const header = RULES_HEADER[lang] ?? RULES_HEADER.en ?? "## Review Rules";
+  const bodies = applicable.map((r) => r.body).join("\n\n---\n\n");
+  return `\n\n${header}\n\n${bodies}`;
+};
+
+// ---------------------------------------------------------------------------
+// Prompt builders
+// ---------------------------------------------------------------------------
+
 const buildDimensionPrompt = (
   dimension: string,
   config: ReviewConfig,
+  rules: readonly RuleFile[],
 ): string => {
   const content = DIMENSIONS[dimension];
   if (!content) return "";
   const lang = config.language === "zh" ? "zh" : "en";
-  return `${content[lang]}\n\n${OUTPUT_FORMAT[lang]}`;
+  return `${content[lang]}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}`;
 };
 
-export const getDimensionPrompts = (config: ReviewConfig): DimensionPrompt[] =>
+/**
+ * Build one `DimensionPrompt` per active dimension listed in `config`.
+ *
+ * Pass `rules` (typically the output of {@link loadRuleFiles}) to inject
+ * markdown rule documents into every prompt. Each rule appears in prompts
+ * for its scoped dimensions plus every general rule appears in all of them.
+ *
+ * The second argument is optional — callers that don't load rule files
+ * still get clean dimension prompts without a rule section.
+ */
+export const getDimensionPrompts = (
+  config: ReviewConfig,
+  rules: readonly RuleFile[] = [],
+): DimensionPrompt[] =>
   [...new Set(config.dimensions)]
     .filter((dim) => DIMENSIONS[dim])
     .map((dim) => ({
       name: dim,
       agentName: `review:dim-${dim}`,
-      prompt: buildDimensionPrompt(dim, config),
+      prompt: buildDimensionPrompt(dim, config, rules),
     }));
