@@ -73,8 +73,14 @@ const readJsonFile = async (
   }
   try {
     const parsed = JSON.parse(content);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      console.warn(`[opencode-code-review] ${path}: config root must be a JSON object`);
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      console.warn(
+        `[opencode-code-review] ${path}: config root must be a JSON object`,
+      );
       return null;
     }
     return parsed as Partial<ReviewConfig>;

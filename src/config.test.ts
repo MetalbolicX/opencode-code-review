@@ -89,7 +89,9 @@ describe("loadConfig", () => {
   it("malformed JSON falls back safely without throwing", async () => {
     vi.mocked(readFile)
       .mockResolvedValueOnce("not valid json {")
-      .mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
     const config = await loadConfig("/fake/project");
     expect(config).toEqual(defaultConfig);
     expect(console.warn).toHaveBeenCalledWith(
@@ -100,7 +102,9 @@ describe("loadConfig", () => {
   it("warns and falls back when the config root is not an object", async () => {
     vi.mocked(readFile)
       .mockResolvedValueOnce('["not", "an", "object"]')
-      .mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
     const config = await loadConfig("/fake/project");
     expect(config).toEqual(defaultConfig);
     expect(console.warn).toHaveBeenCalledWith(

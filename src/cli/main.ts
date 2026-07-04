@@ -85,7 +85,11 @@ const parseCliArgs = (argv: readonly string[]): ParsedArgs => {
 const sliceProcessArgv = (argv: readonly string[]): readonly string[] => {
   if (argv.length < 2) return argv;
   const first = argv[0] ?? "";
-  if (first === process.argv[0] || first.endsWith("node") || first.endsWith("node.exe")) {
+  if (
+    first === process.argv[0] ||
+    first.endsWith("node") ||
+    first.endsWith("node.exe")
+  ) {
     return argv.slice(2);
   }
   return argv;
@@ -163,7 +167,9 @@ export const runMain = (argv: readonly string[] = process.argv): MainResult => {
         return { command, exitCode: 0 };
       }
       default:
-        console.error(`ocr: unknown command '${command}'. Run \`ocr --help\` for usage.`);
+        console.error(
+          `ocr: unknown command '${command}'. Run \`ocr --help\` for usage.`,
+        );
         setExit(2);
         return { command: null, exitCode: 2 };
     }

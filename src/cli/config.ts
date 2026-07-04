@@ -76,7 +76,9 @@ export interface ResolvedConfigPath {
  * Exposed separately so tests and the rotation helper can reuse it
  * without re-deriving the precedence rules.
  */
-export const resolveConfigDir = (env: NodeJS.ProcessEnv = process.env): string => {
+export const resolveConfigDir = (
+  env: NodeJS.ProcessEnv = process.env,
+): string => {
   const explicit = env.OPENCODE_CONFIG_DIR;
   if (typeof explicit === "string" && explicit.trim().length > 0) {
     return explicit;
@@ -109,7 +111,9 @@ export const resolveConfigPath = (
   // `$OPENCODE_CONFIG_DIR` always wins; compute its candidates first.
   const explicit = env.OPENCODE_CONFIG_DIR;
   const hasExplicit =
-    typeof explicit === "string" && explicit.trim().length > 0 && explicit !== primaryDir;
+    typeof explicit === "string" &&
+    explicit.trim().length > 0 &&
+    explicit !== primaryDir;
 
   // Fallback dir is `$HOME/.config/opencode` — compute it on its own so we
   // can walk both sets independently.
@@ -124,10 +128,10 @@ export const resolveConfigPath = (
     format: "jsonc",
   });
 
-  const candidateFns: ((dir: string) => { path: string; format: "json" | "jsonc" })[] = [
-    json,
-    jsonc,
-  ];
+  const candidateFns: ((dir: string) => {
+    path: string;
+    format: "json" | "jsonc";
+  })[] = [json, jsonc];
   const dirs: string[] = hasExplicit
     ? [primaryDir]
     : fallbackDir && fallbackDir !== primaryDir
@@ -138,7 +142,11 @@ export const resolveConfigPath = (
     for (const fn of candidateFns) {
       const candidate = fn(dir);
       if (fs.existsSync(candidate.path)) {
-        return { path: candidate.path, format: candidate.format, existed: true };
+        return {
+          path: candidate.path,
+          format: candidate.format,
+          existed: true,
+        };
       }
     }
   }
@@ -344,7 +352,10 @@ export const buildSpecifier = (version?: string): string => {
  * survive (newest first). Returns the backup path, or `null` when no
  * backup was needed (file missing or not writable).
  */
-export const backupIfWritable = (configPath: string, fs: CliFs): string | null => {
+export const backupIfWritable = (
+  configPath: string,
+  fs: CliFs,
+): string | null => {
   if (!fs.existsSync(configPath)) return null;
 
   const dir = dirname(configPath);
@@ -369,7 +380,11 @@ export const backupIfWritable = (configPath: string, fs: CliFs): string | null =
  * `limit` siblings (lexical order on the timestamp suffix is fine because
  * the stamp is fixed-width and ISO-8601-derived).
  */
-export const rotateBackups = (configPath: string, limit: number, fs: CliFs): void => {
+export const rotateBackups = (
+  configPath: string,
+  limit: number,
+  fs: CliFs,
+): void => {
   if (limit < 1) return;
   const dir = dirname(configPath);
   const base = basename(configPath);
@@ -408,7 +423,11 @@ const backupTimestamp = (date: Date): string => {
  * CLI never leaves a half-written config behind. Any parent directories
  * are created with `{ recursive: true }` so first-run installs Just Work.
  */
-export const writeAtomically = (targetPath: string, content: string, fs: CliFs): void => {
+export const writeAtomically = (
+  targetPath: string,
+  content: string,
+  fs: CliFs,
+): void => {
   const dir = dirname(targetPath);
   fs.mkdirSync(dir, { recursive: true });
   const tmp = `${targetPath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -454,7 +473,10 @@ export interface LoadedConfig {
  * JSON, the error propagates so the caller can abort instead of silently
  * overwriting the user's config with an empty one.
  */
-export const loadGlobalConfig = (fs: CliFs, env: NodeJS.ProcessEnv = process.env): LoadedConfig => {
+export const loadGlobalConfig = (
+  fs: CliFs,
+  env: NodeJS.ProcessEnv = process.env,
+): LoadedConfig => {
   const resolved = resolveConfigPath(fs, env);
   if (!resolved.existed) {
     return { path: resolved.path, config: {}, existed: false };

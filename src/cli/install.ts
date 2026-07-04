@@ -79,7 +79,8 @@ export const runInstall = (
   // state equals what we already have, no write is needed.
   const nonReview = existing.filter((entry) => !matchesReviewPlugin(entry));
   const finalPlugins = [...nonReview, specifier];
-  const isNoop = !opts.dryRun && JSON.stringify(finalPlugins) === JSON.stringify(existing);
+  const isNoop =
+    !opts.dryRun && JSON.stringify(finalPlugins) === JSON.stringify(existing);
 
   if (isNoop) {
     console.log(`✓ Already installed (${specifier}) at ${loaded.path}`);

@@ -5,6 +5,7 @@ coverage/
 *.d.ts
 *.js.map
 !src/
+src/**/*.js
 .DS_Store
 
 .serena

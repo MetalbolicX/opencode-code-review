@@ -84,7 +84,8 @@ export const buildFileRules = (
     return true; // "all"
   });
   if (filtered.length === 0) return "";
-  const title = RULE_SECTION_TITLE[lang] ?? RULE_SECTION_TITLE.en ?? "## Review Rules";
+  const title =
+    RULE_SECTION_TITLE[lang] ?? RULE_SECTION_TITLE.en ?? "## Review Rules";
   const bodies = filtered.map((r) => r.body).join("\n\n---\n\n");
   return `\n\n${title}\n\n${bodies}`;
 };
@@ -96,7 +97,9 @@ export const buildScopedRuleSummary = (
   const scoped = rules.filter((r) => r.dimensions.length > 0);
   if (scoped.length === 0) return "";
   const title =
-    SCOPED_SUMMARY_TITLE[lang] ?? SCOPED_SUMMARY_TITLE.en ?? "## Scoped Rules Summary";
+    SCOPED_SUMMARY_TITLE[lang] ??
+    SCOPED_SUMMARY_TITLE.en ??
+    "## Scoped Rules Summary";
   const items = scoped
     .map((r) => {
       const filename = basename(r.path);
@@ -111,8 +114,4 @@ export const buildScopedRuleSummary = (
   return `\n\n${title}\n\n${items}`;
 };
 
-export {
-  DIMENSION_LABELS,
-  buildDimensionList,
-  buildCustomRules,
-};
+export { DIMENSION_LABELS, buildDimensionList, buildCustomRules };

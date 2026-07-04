@@ -79,11 +79,11 @@ const CONFIG = "/home/test/.config/opencode/opencode.json";
 let savedEnv: Record<string, string | undefined>;
 beforeEach(() => {
   savedEnv = {
-    HOME: process.env["HOME"],
-    OPENCODE_CONFIG_DIR: process.env["OPENCODE_CONFIG_DIR"],
+    HOME: process.env.HOME,
+    OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
   };
-  delete process.env["OPENCODE_CONFIG_DIR"];
-  process.env["HOME"] = "/home/test";
+  delete process.env.OPENCODE_CONFIG_DIR;
+  process.env.HOME = "/home/test";
   vi.mocked(rmSync).mockReset();
   vi.spyOn(console, "log").mockImplementation(() => {});
 });

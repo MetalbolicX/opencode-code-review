@@ -47,7 +47,9 @@ export const runStatus = (
 
   console.log(`Config path:    ${loaded.path}`);
   console.log(`Format:         ${format}`);
-  console.log(`Exists on disk: ${loaded.existed ? "yes" : "no (will be created on install)"}`);
+  console.log(
+    `Exists on disk: ${loaded.existed ? "yes" : "no (will be created on install)"}`,
+  );
 
   if (reviewEntries.length === 0) {
     console.log(`Installed:      no`);

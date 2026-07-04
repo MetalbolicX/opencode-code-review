@@ -6,7 +6,11 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
   // The fixer only needs general rules; dimension-scoped rules belong in
   // the dimension sub-agent that found the issue, not in the fixer.
   const lang: "zh" | "en" = isZh ? "zh" : "en";
-  const generalRulesSection = buildFileRules(config.file_rules, "general", lang);
+  const generalRulesSection = buildFileRules(
+    config.file_rules,
+    "general",
+    lang,
+  );
 
   if (isZh) {
     return `你是一个代码修复代理。你会收到审查发现的关键问题列表，你的任务是修复这些问题。

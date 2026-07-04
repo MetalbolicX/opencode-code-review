@@ -58,8 +58,9 @@ export const cachePath = (env: NodeJS.ProcessEnv = process.env): string =>
   join(homeRoot(env), ".cache", "opencode", "node_modules", PLUGIN_NAME);
 
 /** Plugin's own XDG config dir (separate from the OpenCode config it edits). */
-export const pluginConfigPath = (env: NodeJS.ProcessEnv = process.env): string =>
-  join(homeRoot(env), ".config", PLUGIN_NAME);
+export const pluginConfigPath = (
+  env: NodeJS.ProcessEnv = process.env,
+): string => join(homeRoot(env), ".config", PLUGIN_NAME);
 
 /**
  * Best-effort recursive delete. Returns the path on success or `null` when
@@ -110,7 +111,11 @@ export const runUninstall = (
   }
 
   // Nothing to remove from the config AND nothing to purge → true no-op.
-  if (removed.length === 0 && purged.length === 0 && plannedPurge.length === 0) {
+  if (
+    removed.length === 0 &&
+    purged.length === 0 &&
+    plannedPurge.length === 0
+  ) {
     console.log(`✓ Not installed: ${PLUGIN_NAME} not found in ${loaded.path}`);
     return { status: "noop", path: loaded.path, removed: [], purged: [] };
   }

@@ -288,10 +288,9 @@ describe("loadRuleFiles — basic loading", () => {
         "CRLF body",
         ["security"],
       ),
-      "/home/user/.config/opencode/review-rules/lf.md": ruleFile(
-        "CRLF body",
-        ["security"],
-      ),
+      "/home/user/.config/opencode/review-rules/lf.md": ruleFile("CRLF body", [
+        "security",
+      ]),
     });
     const result = loadRuleFiles({
       globalDir: "/home/user/.config/opencode/review-rules",
@@ -300,8 +299,14 @@ describe("loadRuleFiles — basic loading", () => {
       fs,
     });
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ body: "CRLF body", dimensions: ["security"] });
-    expect(result[1]).toMatchObject({ body: "CRLF body", dimensions: ["security"] });
+    expect(result[0]).toMatchObject({
+      body: "CRLF body",
+      dimensions: ["security"],
+    });
+    expect(result[1]).toMatchObject({
+      body: "CRLF body",
+      dimensions: ["security"],
+    });
   });
 });
 

@@ -1,9 +1,6 @@
 import type { ReviewConfig } from "../../config.ts";
 import { getDimensionPrompts } from "../../dimensions/index.ts";
-import {
-  buildFileRules,
-  buildScopedRuleSummary,
-} from "../shared.ts";
+import { buildFileRules, buildScopedRuleSummary } from "../shared.ts";
 import { buildSinglePrompt } from "./single.ts";
 
 const REPORT_FORMAT: Record<string, string> = {
@@ -67,7 +64,11 @@ const buildParallelPrompt = (config: ReviewConfig): string => {
   // Orchestrator sees general rules inline + a compact map of which
   // scoped files cover which dimensions. The dimension bodies themselves
   // already reach sub-agents via `getDimensionPrompts(config, file_rules)`.
-  const generalRulesSection = buildFileRules(config.file_rules, "general", lang);
+  const generalRulesSection = buildFileRules(
+    config.file_rules,
+    "general",
+    lang,
+  );
   const scopedSummarySection = buildScopedRuleSummary(config.file_rules, lang);
 
   if (lang === "zh") {
