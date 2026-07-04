@@ -14,6 +14,7 @@ honor its STOP conditions, and update your row when done.
 | 004  | Add reproducible verification scripts and toolchain | P1 | M | — | DONE |
 | 005  | Add minimal high-ROI test coverage | P1 | M | 004 | DONE |
 | 006  | Split `src/agent.ts` into smaller prompt modules without changing behavior | P2 | M | 004, 005 | DONE |
+| 007  | Load markdown review rules from `review-rules/` and inject them into all review agents | P1 | M | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
@@ -24,6 +25,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - 005 depends on 004 because the test runner (`vitest`) is installed via the toolchain plan, and `pnpm verify` must include tests.
 - 006 depends on both 004 and 005 — it is a pure refactor, and the tests from 005 serve as the regression guard proving no prompt drift.
 - Execute in order: 004 → 005 → 006. Do not run 006 before 005; without tests, the refactor has no safety net.
+- 007 is independent and can follow the existing prompt-module split; it adds a new rule-loading path and prompt wiring.
 
 ## Findings considered and rejected
 
