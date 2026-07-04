@@ -6,6 +6,7 @@ coverage/
 *.js.map
 !src/
 src/**/*.js
+.opencode/plans/
 .DS_Store
 
 .serena
