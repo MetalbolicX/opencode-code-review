@@ -18,6 +18,7 @@ honor its STOP conditions, and update your row when done.
 | 008  | Surface malformed `review.json` instead of silently falling back | P1 | S | — | DONE |
 | 009  | Accept CRLF (Windows) line endings in review rule files | P1 | S | — | DONE |
 | 010  | Retry auto-review after a failed prompt | P2 | S | — | DONE |
+| 011  | Fix production-readiness blockers | P1 | M | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
