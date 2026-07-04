@@ -67,20 +67,20 @@ const readJsonFile = async (
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return null;
     console.warn(
-      `[opencode-review] ${path}: could not read config — ${(err as Error).message}`,
+      `[opencode-code-review] ${path}: could not read config — ${(err as Error).message}`,
     );
     return null;
   }
   try {
     const parsed = JSON.parse(content);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      console.warn(`[opencode-review] ${path}: config root must be a JSON object`);
+      console.warn(`[opencode-code-review] ${path}: config root must be a JSON object`);
       return null;
     }
     return parsed as Partial<ReviewConfig>;
   } catch (err) {
     console.warn(
-      `[opencode-review] ${path}: malformed config JSON — ${(err as Error).message}`,
+      `[opencode-code-review] ${path}: malformed config JSON — ${(err as Error).message}`,
     );
     return null;
   }

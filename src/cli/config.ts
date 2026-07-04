@@ -26,7 +26,7 @@ import { basename, dirname, join } from "node:path";
 // ---------------------------------------------------------------------------
 
 /** npm package name for this plugin. */
-export const PLUGIN_NAME = "opencode-review";
+export const PLUGIN_NAME = "opencode-code-review";
 
 /** Maximum number of CLI-created backups retained in the config directory. */
 export const BACKUP_LIMIT = 3;
@@ -253,7 +253,7 @@ const stripJsoncComments = (text: string): string => {
 
 /**
  * True when `entry` is a string that resolves to this plugin by base name.
- * Matches `opencode-review` and any `opencode-review@<spec>` variant.
+ * Matches `opencode-code-review` and any `opencode-code-review@<spec>` variant.
  * Non-string entries (legacy object-form leftover) return false.
  */
 export const matchesReviewPlugin = (entry: unknown): boolean => {
@@ -290,7 +290,7 @@ export const normalizePlugin = (raw: unknown): string[] => {
 
 /**
  * Dedupe the plugin list by base name (the part before the first `@`),
- * keeping the LAST occurrence of each base. Any `opencode-review`
+ * keeping the LAST occurrence of each base. Any `opencode-code-review`
  * entries are removed entirely so the install flow can append one fresh
  * entry at the end without leaving stale versions behind.
  *
@@ -323,8 +323,8 @@ export const dedupePlugins = (entries: readonly string[]): string[] => {
 
 /**
  * Build the npm specifier we will write into `plugin[]`:
- * `"opencode-review"` when no version is supplied, otherwise
- * `"opencode-review@<version>"`. Empty / whitespace-only versions
+ * `"opencode-code-review"` when no version is supplied, otherwise
+ * `"opencode-code-review@<version>"`. Empty / whitespace-only versions
  * are treated as "no version".
  */
 export const buildSpecifier = (version?: string): string => {

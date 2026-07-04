@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
 // src/cli/uninstall.ts — `ocr uninstall` command.
 //
-// Removes every `opencode-review` entry from the global OpenCode config's
+// Removes every `opencode-code-review` entry from the global OpenCode config's
 // `plugin` list. With `--purge`, also deletes the runtime cache directory
-// (`~/.cache/opencode/node_modules/opencode-review`) and the plugin's own
-// config dir (`~/.config/opencode-review/`).
+// (`~/.cache/opencode/node_modules/opencode-code-review`) and the plugin's own
+// config dir (`~/.config/opencode-code-review/`).
 //
 // Like `install`, the function is side-effect-free beyond prints and disk
 // writes through `fs`. Tests inject an in-memory `CliFs` to exercise the

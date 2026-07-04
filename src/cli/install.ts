@@ -2,7 +2,7 @@
 // src/cli/install.ts — `ocr install` command.
 //
 // Edits the global OpenCode config so `plugin` contains exactly one
-// `opencode-review[@version]` entry. The flow is idempotent: existing
+// `opencode-code-review[@version]` entry. The flow is idempotent: existing
 // review entries are filtered out before the new one is appended, and
 // re-running with the same version is a no-op. With `--dry-run` the
 // pipeline runs end-to-end but no bytes hit disk.

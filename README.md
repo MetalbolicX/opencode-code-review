@@ -1,4 +1,4 @@
-# opencode-review
+# opencode-code-review
 
 An automatic code review plugin for [OpenCode](https://opencode.ai) CLI. Automatically reviews staged changes when a session goes idle, with configurable cooldown, multi-dimension analysis, and auto-fix support.
 
@@ -21,20 +21,26 @@ Copy or symlink into your OpenCode plugins directory:
 ```bash
 # Project-level
 mkdir -p .opencode/plugins
-ln -s /path/to/opencode-review/src/index.ts .opencode/plugins/opencode-review.ts
+ln -s /path/to/opencode-code-review/src/index.ts .opencode/plugins/opencode-code-review.ts
 
 # Or global
-ln -s /path/to/opencode-review/src/index.ts ~/.config/opencode/plugins/opencode-review.ts
+ln -s /path/to/opencode-code-review/src/index.ts ~/.config/opencode/plugins/opencode-code-review.ts
 ```
 
-### npm (coming soon)
+### npm
 
 Add to your `opencode.json`:
 
 ```json
 {
-  "plugin": ["opencode-review"]
+  "plugin": ["opencode-code-review"]
 }
+```
+
+Or install directly:
+
+```bash
+npm install -g opencode-code-review
 ```
 
 ## Development

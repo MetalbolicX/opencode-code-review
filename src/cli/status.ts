@@ -15,7 +15,7 @@ import {
 import { createRealFs } from "./real-fs.ts";
 
 export interface StatusResult {
-  /** Whether an `opencode-review` entry is present in `plugin`. */
+  /** Whether an `opencode-code-review` entry is present in `plugin`. */
   installed: boolean;
   /** Resolved config path the loader used. */
   path: string;

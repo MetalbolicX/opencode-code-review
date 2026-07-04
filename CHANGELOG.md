@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release of opencode-review plugin
+- Initial release of opencode-code-review plugin
 - `review_changes` tool to gather git diff for staged, last-commit, or branch scope
 - Configurable review dimensions, custom rules, and language (zh/en)
 - Auto-review on session idle with configurable cooldown

@@ -70,7 +70,7 @@ const readJsonFile = async (
 These resolve the ambiguities a cold executor would otherwise face:
 
 1. **Mechanism**: use `console.warn(...)`. This matches the `[review-rules] ...` warning style already used in `src/rule-files.ts:297-305`. Do NOT add a `parseError` return field (that is the CLI's pattern at `src/cli/config.ts:445`, which is a different contract — out of scope here).
-2. **Warning format**: `` `[opencode-review] ${path}: malformed config JSON — ${message}` `` where `message` is the error's `.message`. Use the same prefix and path-inclusion style.
+2. **Warning format**: `` `[opencode-code-review] ${path}: malformed config JSON — ${message}` `` where `message` is the error's `.message`. Use the same prefix and path-inclusion style.
 3. **Missing file (`ENOENT`)**: return `null` silently. This is the current, correct behavior for absent files and must be preserved — see the existing test at `src/config.test.ts:46-50`.
 4. **Malformed JSON (parse `SyntaxError`)**: `console.warn(...)` with the path and message, then return `null`. The plugin still falls back to defaults (resilient), but now visibly.
 5. **Non-object root** (e.g. `JSON.parse("[]")` or `JSON.parse('"x"')`): `console.warn(...)` with a message like `"config root must be a JSON object"`, then treat the value as `null` (do NOT spread it into the defaults). This mirrors the guard at `src/cli/config.ts:185-187` but warns instead of throwing, because the plugin must not crash the host.
@@ -121,7 +121,7 @@ const readJsonFile = async (
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "ENOENT") return null;
     console.warn(
-      `[opencode-review] ${path}: could not read config — ${(err as Error).message}`,
+      `[opencode-code-review] ${path}: could not read config — ${(err as Error).message}`,
     );
     return null;
   }
@@ -130,14 +130,14 @@ const readJsonFile = async (
     // Reject non-object roots (arrays, strings, numbers) before they reach the spread merge.
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       console.warn(
-        `[opencode-review] ${path}: config root must be a JSON object`,
+        `[opencode-code-review] ${path}: config root must be a JSON object`,
       );
       return null;
     }
     return parsed as Partial<ReviewConfig>;
   } catch (err) {
     console.warn(
-      `[opencode-review] ${path}: malformed config JSON — ${(err as Error).message}`,
+      `[opencode-code-review] ${path}: malformed config JSON — ${(err as Error).message}`,
     );
     return null;
   }

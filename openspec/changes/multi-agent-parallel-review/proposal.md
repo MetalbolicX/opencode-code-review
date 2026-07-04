@@ -1,6 +1,6 @@
 ## Why
 
-当前 opencode-review 使用单一 agent 审查所有维度（code-quality、security、performance、testing、documentation）。竞品分析（见 #2）表明，多 agent 并行审查是行业趋势——spencermarx/open-code-review（179 Stars）使用多 agent 辩论机制，calimero/ai-code-reviewer 使用 5 个专业 agent 共识评分。单 agent 在复杂 diff 中容易遗漏维度、输出笼统，且无法利用 OpenCode 的 subagent 并行能力。现在 OpenCode SDK 已原生支持 sub-agent 调度（`task` 工具），实现多 agent 并行审查的时机已成熟。
+当前 opencode-code-review 使用单一 agent 审查所有维度（code-quality、security、performance、testing、documentation）。竞品分析（见 #2）表明，多 agent 并行审查是行业趋势——spencermarx/open-code-review（179 Stars）使用多 agent 辩论机制，calimero/ai-code-reviewer 使用 5 个专业 agent 共识评分。单 agent 在复杂 diff 中容易遗漏维度、输出笼统，且无法利用 OpenCode 的 subagent 并行能力。现在 OpenCode SDK 已原生支持 sub-agent 调度（`task` 工具），实现多 agent 并行审查的时机已成熟。
 
 ## What Changes
 

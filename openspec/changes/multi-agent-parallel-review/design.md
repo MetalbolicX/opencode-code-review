@@ -1,6 +1,6 @@
 ## Context
 
-opencode-review 当前使用单个 `review` agent 串行审查所有维度。每个维度（code-quality、security、performance、testing、documentation）的 prompt 混合在同一个 prompt 中，由一个 agent 完成全部审查。
+opencode-code-review 当前使用单个 `review` agent 串行审查所有维度。每个维度（code-quality、security、performance、testing、documentation）的 prompt 混合在同一个 prompt 中，由一个 agent 完成全部审查。
 
 OpenCode SDK 原生支持 sub-agent 调度（通过 `task` 工具），可以在一个 agent 中并行 spawn 多个 sub-agent 并收集结果。当前项目已有一个 sub-agent 模式：`review:fixer`。
 

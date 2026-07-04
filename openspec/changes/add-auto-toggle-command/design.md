@@ -1,6 +1,6 @@
 ## Context
 
-opencode-review 插件当前通过 `.opencode/review.json` 的 `trigger.auto_on_idle` 控制自动审查。配置在插件初始化时读取一次，运行时无法修改。
+opencode-code-review 插件当前通过 `.opencode/review.json` 的 `trigger.auto_on_idle` 控制自动审查。配置在插件初始化时读取一次，运行时无法修改。
 
 现有代码结构：
 - `src/index.ts` — 插件入口，注册 commands、tools、events

@@ -34,7 +34,7 @@ Options (install):
       --yes          Skip confirmation prompts (reserved)
 
 Options (uninstall):
-      --purge        Also remove cache + ~/.config/opencode-review/
+       --purge        Also remove cache + ~/.config/opencode-code-review/
       --dry-run      Print the planned change without writing
       --yes          Skip confirmation prompts (reserved)
 
