@@ -18,7 +18,7 @@
     "build": "rm -rf dist && rolldown -c && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit --allowImportingTsExtensions",
     "lint": "biome check src/",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "test:watch": "vitest",
     "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test"
   },
