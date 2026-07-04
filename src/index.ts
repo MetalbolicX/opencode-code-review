@@ -8,7 +8,12 @@ import {
 import { getDimensionPrompts } from "./dimensions/index.ts";
 import { reviewChanges, createToggleAutoReviewTool } from "./tools/index.ts";
 
-// @ts-expect-error TS2322: pre-existing type bug — config hook returns void not Promise<void>
+interface SessionIdleEvent {
+  type: string;
+  properties?: { sessionID?: string; id?: string };
+  id?: string;
+}
+
 const opencodeReview: Plugin = async ({
   project: _project,
   client,
@@ -25,7 +30,7 @@ const opencodeReview: Plugin = async ({
   let lastAutoReviewTime = 0;
 
   return {
-    config(openCodeConfig) {
+    async config(openCodeConfig) {
       openCodeConfig.agent ??= {};
 
       openCodeConfig.agent.review = {
@@ -114,7 +119,7 @@ const opencodeReview: Plugin = async ({
           return;
         lastAutoReviewTime = now;
 
-        const ev = event as any;
+        const ev = event as unknown as SessionIdleEvent;
         const sessionID =
           ev.properties?.sessionID ?? ev.properties?.id ?? ev.id;
         if (!sessionID) return;

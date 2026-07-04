@@ -1,9 +1,26 @@
 import { tool } from "@opencode-ai/plugin";
-import type { ToolDefinition } from "@opencode-ai/plugin";
+import type { ToolContext, ToolDefinition } from "@opencode-ai/plugin";
 
 type CommandResult =
   | { ok: true; stdout: string }
   | { ok: false; error: string };
+
+type ShellCall = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => ShellPromise;
+
+type ShellPromise = Promise<CommandResult> & {
+  quiet: () => ShellPromise;
+};
+
+interface ShellRunner extends ShellCall {
+  quiet: () => ShellPromise;
+}
+
+interface ToolContextWithShell extends ToolContext {
+  $: ShellRunner;
+}
 
 const SAFE_BRANCH_REGEX = /^[a-zA-Z0-9._/-]+$/;
 
@@ -22,8 +39,8 @@ export const reviewChanges: ToolDefinition = tool({
       .describe("Maximum diff lines to return (default from config)"),
   },
   async execute(args, context) {
-    // biome-ignore lint/suspicious/noExplicitAny: runtime provides BunShell but ToolContext type doesn't include it
-    const $ = (context as any).$;
+    const ctx = context as unknown as ToolContextWithShell;
+    const $ = ctx.$;
     const { directory: _directory } = context;
     const scope = args.scope ?? "staged";
     const maxLines = args.max_lines ?? 500;
@@ -82,10 +99,13 @@ export const reviewChanges: ToolDefinition = tool({
   },
 });
 
-const runCommand = async ($: any, cmd: string): Promise<CommandResult> => {
+const runCommand = async (
+  $: ShellRunner,
+  cmd: string,
+): Promise<CommandResult> => {
   try {
     const result = await $`bash -c ${cmd}`.quiet();
-    const stdout = result.stdout ?? "";
+    const stdout = result.ok ? result.stdout : "";
     return { ok: true, stdout };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -93,10 +113,10 @@ const runCommand = async ($: any, cmd: string): Promise<CommandResult> => {
   }
 };
 
-const getDefaultBranch = async ($: any): Promise<string> => {
+const getDefaultBranch = async ($: ShellRunner): Promise<string> => {
   try {
     const result = await $`git symbolic-ref refs/remotes/origin/HEAD`.quiet();
-    const raw = (result.stdout ?? "").trim();
+    const raw = (result.ok ? result.stdout : "").trim();
     const prefix = "refs/remotes/origin/";
     if (raw.startsWith(prefix)) {
       return raw.slice(prefix.length);
