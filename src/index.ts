@@ -134,6 +134,7 @@ const opencodeReview: Plugin = async ({
           });
         } catch (e) {
           console.error("[auto-review] promptAsync failed:", e);
+          lastAutoReviewTime = 0;
         }
       }
     },

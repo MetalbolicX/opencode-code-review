@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { loadConfig } from "./config.ts";
 
 vi.mock("node:fs/promises", () => ({
@@ -41,10 +41,17 @@ const defaultConfig = {
 describe("loadConfig", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("returns default config when no config files exist", async () => {
-    vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
+    vi.mocked(readFile).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
     const config = await loadConfig("/fake/project");
     expect(config).toEqual(defaultConfig);
   });
@@ -82,9 +89,32 @@ describe("loadConfig", () => {
   it("malformed JSON falls back safely without throwing", async () => {
     vi.mocked(readFile)
       .mockResolvedValueOnce("not valid json {")
-      .mockRejectedValue(new Error("ENOENT"));
+      .mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
     const config = await loadConfig("/fake/project");
     expect(config).toEqual(defaultConfig);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("malformed config JSON"),
+    );
+  });
+
+  it("warns and falls back when the config root is not an object", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce('["not", "an", "object"]')
+      .mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+    const config = await loadConfig("/fake/project");
+    expect(config).toEqual(defaultConfig);
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("config root must be a JSON object"),
+    );
+  });
+
+  it("missing config file applies defaults silently (no warning)", async () => {
+    vi.mocked(readFile).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    const config = await loadConfig("/fake/project");
+    expect(config).toEqual(defaultConfig);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 
   it("partial config merges without losing unrelated default fields", async () => {

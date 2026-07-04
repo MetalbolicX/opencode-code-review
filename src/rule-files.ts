@@ -115,14 +115,14 @@ export interface ParsedFrontmatter {
  * skipping the file with a warning.
  */
 export const parseFrontmatter = (text: string): ParsedFrontmatter | null => {
+  const src = text.replace(/\r\n/g, "\n");
+
   // Frontmatter must start at the very first line.
-  if (!text.startsWith("---\n") && text !== "---") return null;
+  if (!src.startsWith("---\n") && src !== "---") return null;
 
   // Walk lines from index 1 looking for the closing `---` line.
-  const rest = text.startsWith("---\n") ? text.slice(4) : text.slice(3);
-  // Allow either LF or CRLF terminators on the opening fence.
-  const normalized = rest.startsWith("\r\n") ? rest.slice(2) : rest;
-  const lines = normalized.split("\n");
+  const rest = src.startsWith("---\n") ? src.slice(4) : src.slice(3);
+  const lines = rest.split("\n");
   let closingIdx = -1;
   for (let i = 0; i < lines.length; i++) {
     if (lines[i] === "---" || lines[i] === "--- ") {
@@ -338,7 +338,8 @@ const tryParseFile = (
   }
   // Distinguish "no frontmatter at all" from "frontmatter present but no
   // `dimensions` key" so the user gets an actionable message either way.
-  const hasFrontmatter = raw.startsWith("---\n") || raw === "---";
+  const hasFrontmatter =
+    raw.startsWith("---\n") || raw.startsWith("---\r\n") || raw === "---";
   if (!hasFrontmatter) {
     warn(`[review-rules] skipping ${path}: missing frontmatter block`);
     return null;

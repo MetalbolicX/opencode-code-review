@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import type { PluginInput } from "@opencode-ai/plugin";
 import opencodeReview from "./index.ts";
 
+const { loadConfig } = await import("./config.ts");
+
 vi.mock("./config.ts", () => ({
   loadConfig: vi.fn().mockResolvedValue({
     language: "zh",
@@ -52,5 +54,50 @@ describe("plugin smoke test", () => {
     expect(openCodeConfig.agent).toHaveProperty("review");
     expect(openCodeConfig.command).toHaveProperty("review");
     expect(openCodeConfig.command).toHaveProperty("review:auto");
+  });
+});
+
+describe("session.idle failure retry", () => {
+  it("a failed promptAsync does not consume the cooldown (next idle retries)", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: true, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+    });
+
+    const promptAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValueOnce({});
+    const ctx = {
+      project: "",
+      client: { session: { promptAsync } },
+      $: vi.fn(),
+      directory: "/fake",
+      worktree: "",
+      experimental_workspace: "",
+      serverUrl: "",
+    } as unknown as Parameters<typeof opencodeReview>[0];
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const plugin = await opencodeReview(ctx);
+
+    const idleEvent = {
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "sess-1" },
+        id: "sess-1",
+      },
+    };
+
+    await plugin.event?.(idleEvent as any);
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+
+    await plugin.event?.(idleEvent as any);
+    expect(promptAsync).toHaveBeenCalledTimes(2);
   });
 });

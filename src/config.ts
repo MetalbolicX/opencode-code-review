@@ -60,10 +60,28 @@ const makeNodeFs = (): RuleFilesFs => ({
 const readJsonFile = async (
   path: string,
 ): Promise<Partial<ReviewConfig> | null> => {
+  let content: string;
   try {
-    const content = await readFile(path, "utf-8");
-    return JSON.parse(content);
-  } catch {
+    content = await readFile(path, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") return null;
+    console.warn(
+      `[opencode-review] ${path}: could not read config — ${(err as Error).message}`,
+    );
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(`[opencode-review] ${path}: config root must be a JSON object`);
+      return null;
+    }
+    return parsed as Partial<ReviewConfig>;
+  } catch (err) {
+    console.warn(
+      `[opencode-review] ${path}: malformed config JSON — ${(err as Error).message}`,
+    );
     return null;
   }
 };

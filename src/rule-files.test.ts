@@ -111,6 +111,10 @@ const yamlRuleFile = (body: string, dimensions: string[]): string => {
 const noDimensionsFile = (body: string): string =>
   ["---", "title: example", "---", "", body].join("\n");
 
+/** Build a markdown string with an inline-array frontmatter block using CRLF endings. */
+const crlfRuleFile = (body: string, dimensions: string[]): string =>
+  `---\r\ndimensions: [${dimensions.join(", ")}]\r\n---\r\n\r\n${body}`;
+
 // ---------------------------------------------------------------------------
 // parseFrontmatter
 // ---------------------------------------------------------------------------
@@ -171,6 +175,12 @@ describe("parseFrontmatter", () => {
       dimensions: ["security", "testing"],
       body: "body",
     });
+  });
+
+  it("parses a CRLF document the same as its LF equivalent", () => {
+    const crlf = crlfRuleFile("body text", ["security", "testing"]);
+    const lf = ruleFile("body text", ["security", "testing"]);
+    expect(parseFrontmatter(crlf)).toEqual(parseFrontmatter(lf));
   });
 
   it("preserves body newlines and blank lines", () => {
@@ -270,6 +280,28 @@ describe("loadRuleFiles — basic loading", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.scope).toBe("project");
     expect(result[0]?.path).toBe("/proj/.opencode/review-rules/local.md");
+  });
+
+  it("loads a CRLF rule file the same as its LF equivalent", () => {
+    const fs = createMemFs({
+      "/home/user/.config/opencode/review-rules/crlf.md": crlfRuleFile(
+        "CRLF body",
+        ["security"],
+      ),
+      "/home/user/.config/opencode/review-rules/lf.md": ruleFile(
+        "CRLF body",
+        ["security"],
+      ),
+    });
+    const result = loadRuleFiles({
+      globalDir: "/home/user/.config/opencode/review-rules",
+      projectDir: "/proj/.opencode/review-rules",
+      knownDimensions: KNOWN_DIMENSIONS,
+      fs,
+    });
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({ body: "CRLF body", dimensions: ["security"] });
+    expect(result[1]).toMatchObject({ body: "CRLF body", dimensions: ["security"] });
   });
 });
 
