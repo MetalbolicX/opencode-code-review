@@ -3,9 +3,15 @@
   "version": "0.2.0",
   "description": "A review agent plugin for OpenCode CLI - structured code review with configurable dimensions",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/plugin.mjs",
+  "bin": {
+    "ocr": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && rolldown -c && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit --allowImportingTsExtensions",
     "lint": "biome check src/",
     "test": "vitest run --passWithNoTests",
@@ -24,7 +30,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
     "@opencode-ai/plugin": "^1.17.13",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "4.1.9",
+    "rolldown": "^1.1.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }
