@@ -1,5 +1,24 @@
 import type { ReviewConfig } from "../config.ts";
-import { buildFileRules } from "./shared.ts";
+import { buildFileRules, formatTagListSlash } from "./shared.ts";
+
+// The five allowed simplification tags live in shared.ts so the dimension
+// body, the orchestrator prompts, this exclusion clause, and tests reference
+// the same canonical list. Auto-fix safety is a defense-in-depth rule: any
+// tag emitted by `code-quality` MUST be excluded here.
+const SIMPLIFICATION_EXCLUSION: Record<string, string> = {
+  zh: `## 精简类自动修复保护（防御性边界）
+
+不要自动修复任何使用 \`[tag]\` 前缀归类的精简类发现。即使上游审查将精简类问题转交给 fixer，你也必须将其排除在自动修复之外。
+
+适用标签：${formatTagListSlash()}
+
+精简类发现涉及架构与代码品味判断，修复它们可能改变行为、削弱校验或语义；必须由人工在审查中决策。`,
+  en: `## Simplification auto-fix protection (defense-in-depth)
+
+Do NOT auto-fix any finding classified as a simplification via a \`[tag]\` prefix (${formatTagListSlash()}). Even if an upstream review forwards a simplification finding to the fixer, you must never auto-fix it — these exclusions take priority over any other auto-fix rule.
+
+These five tags require human judgment — auto-fixing them risks changing behavior, weakening validation, or shifting semantics.`,
+};
 
 export const buildFixerPrompt = (config: ReviewConfig): string => {
   const isZh = config.language === "zh";
@@ -11,6 +30,8 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
     "general",
     lang,
   );
+  const exclusionSection = SIMPLIFICATION_EXCLUSION[lang];
+  const exclusionInline = formatTagListSlash();
 
   if (isZh) {
     return `你是一个代码修复代理。你会收到审查发现的关键问题列表，你的任务是修复这些问题。
@@ -27,16 +48,27 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
 - 如果修复可能引入新问题，说明原因并谨慎处理
 - 每个修复完成后简要说明做了什么
 
+${exclusionSection}
+
 ## 输出格式
 对每个修复：
+
 \`\`\`
 ✅ [file_path:line_number] 修复说明
 \`\`\`
 
 如果某个问题无法安全修复：
+
 \`\`\`
 ⚠️ [file_path:line_number] 无法修复：原因说明
-\`\`\`${generalRulesSection}`;
+\`\`\`
+
+如果问题属于精简类发现（标签见上文 ${exclusionInline}），输出：
+
+\`\`\`
+⚠️ [file_path:line_number] 精简类发现，不自动修复：原因说明
+\`\`\`
+${generalRulesSection}`;
   }
 
   return `You are a code fixer agent. You receive a list of critical issues found during code review, and your task is to fix them.
@@ -53,14 +85,25 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
 - If a fix might introduce new issues, explain why and proceed cautiously
 - Briefly describe what was done after each fix
 
+${exclusionSection}
+
 ## Output Format
 For each fix:
+
 \`\`\`
 ✅ [file_path:line_number] Fix description
 \`\`\`
 
 If an issue cannot be safely fixed:
+
 \`\`\`
 ⚠️ [file_path:line_number] Cannot fix: reason
-\`\`\`${generalRulesSection}`;
+\`\`\`
+
+If the issue is a simplification finding (tags: ${exclusionInline}), output:
+
+\`\`\`
+⚠️ [file_path:line_number] Simplification finding, do not auto-fix: reason
+\`\`\`
+${generalRulesSection}`;
 };

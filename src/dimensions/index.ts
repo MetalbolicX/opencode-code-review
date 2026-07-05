@@ -1,6 +1,6 @@
 import type { RuleFile } from "../rule-files.ts";
 import type { ReviewConfig } from "../config.ts";
-import { buildIntensityDirective } from "../prompts/shared.ts";
+import { buildIntensityDirective, formatTagList } from "../prompts/shared.ts";
 
 export interface DimensionPrompt {
   name: string;
@@ -11,25 +11,12 @@ export interface DimensionPrompt {
 // ---------------------------------------------------------------------------
 // Simplification tags (code-quality dimension only)
 //
-// The five allowed tags are the only simplification classification this
-// dimension is permitted to emit. Sharing one array across the zh/en
-// bodies and the OUTPUT_FORMAT keeps the tag list in lock-step — adding
-// a tag means changing one constant instead of two prose blocks.
+// The five allowed tags live in `src/prompts/shared.ts` as
+// `SIMPLIFICATION_TAGS` + `formatTagList(lang)` so the dimension body, the
+// orchestrator prompts (single/parallel), the fixer exclusion clause, and
+// tests reference the same source. Adding a tag is a one-line change in
+// shared.ts.
 // ---------------------------------------------------------------------------
-
-const SIMPLIFICATION_TAGS = [
-  "delete",
-  "yagni",
-  "shrink",
-  "stdlib",
-  "native",
-] as const;
-
-/** Render the tag list as inline backticked words with a language-native separator. */
-const formatTagList = (lang: "zh" | "en"): string => {
-  const quoted = SIMPLIFICATION_TAGS.map((t) => `\`${t}\``);
-  return lang === "zh" ? quoted.join("、") : quoted.join(", ");
-};
 
 /** Per-language bullet descriptions for each simplification tag. */
 const SIMPLIFICATION_TAG_BULLETS: Record<"zh" | "en", string> = {

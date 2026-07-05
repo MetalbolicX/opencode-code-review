@@ -15,6 +15,7 @@ const baseConfig: ReviewConfig = {
   custom_rules: [],
   file_rules: [],
   parallel: true,
+  intensity: "full",
 };
 
 const rule = (body: string, dimensions: string[]): RuleFile => ({
@@ -234,5 +235,162 @@ describe("file_rules — fixer prompt", () => {
     const config = { ...baseConfig, file_rules: [] };
     const prompt = buildFixerPrompt(config);
     expect(prompt).not.toMatch(RULE_HEADER);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 3 — integration & fixer safety (Phase 3 / PR 3)
+//
+// Contract:
+//   single   → surface the active intensity in the prompt so reviewers see
+//              the strictness level; document the optional [tag] output prefix
+//   parallel → same surface for the orchestrator; merged-report docs must
+//              remain compatible with the optional [tag] prefix
+//   fixer    → NEVER auto-fix a finding tagged delete / yagni / shrink /
+//              stdlib / native — defense in depth on top of the dimension
+//              boundary rule
+// ---------------------------------------------------------------------------
+
+const INTENSITIES = ["lite", "full", "ultra"] as const;
+type Intensity = (typeof INTENSITIES)[number];
+
+const isIntensityToken = (prompt: string, lang: "zh" | "en", i: Intensity) =>
+  prompt.includes(i) &&
+  (lang === "zh" ? prompt.includes("精简") : prompt.includes("Simplification"));
+
+describe("single-agent prompt — surfaces intensity directive (Phase 3)", () => {
+  for (const intensity of INTENSITIES) {
+    for (const lang of ["zh", "en"] as const) {
+      it(`includes the active intensity (${intensity}, ${lang})`, () => {
+        const config = {
+          ...baseConfig,
+          language: lang,
+          intensity,
+          parallel: false,
+        };
+        const prompt = buildAgentPrompt(config);
+        expect(isIntensityToken(prompt, lang, intensity)).toBe(true);
+      });
+    }
+  }
+
+  it("returns a different single-prompt per intensity in zh (triangulation)", () => {
+    const liteCfg = {
+      ...baseConfig,
+      language: "zh" as const,
+      intensity: "lite" as const,
+      parallel: false,
+    };
+    const ultraCfg = {
+      ...baseConfig,
+      language: "zh" as const,
+      intensity: "ultra" as const,
+      parallel: false,
+    };
+    const litePrompt = buildAgentPrompt(liteCfg);
+    const ultraPrompt = buildAgentPrompt(ultraCfg);
+    expect(litePrompt).not.toBe(ultraPrompt);
+  });
+
+  it("documents the optional [tag] output prefix in zh output", () => {
+    const config = { ...baseConfig, language: "zh" as const, parallel: false };
+    const prompt = buildAgentPrompt(config);
+    // Behavioral: the optional [tag] prefix is a documented affordance for
+    // simplification findings; we expect the prompt to mention it explicitly
+    // so reviewers know the convention. The tag text itself must surface in
+    // the output documentation (not just in dimension bodies).
+    expect(prompt).toMatch(/\[(tag|yagni|delete|shrink|stdlib|native)\]/);
+  });
+
+  it("documents the optional [tag] output prefix in en output", () => {
+    const config = { ...baseConfig, language: "en" as const, parallel: false };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toMatch(/\[(tag|yagni|delete|shrink|stdlib|native)\]/);
+  });
+});
+
+describe("parallel orchestrator prompt — surfaces intensity directive (Phase 3)", () => {
+  for (const intensity of INTENSITIES) {
+    for (const lang of ["zh", "en"] as const) {
+      it(`includes the active intensity (${intensity}, ${lang})`, () => {
+        const config = {
+          ...baseConfig,
+          language: lang,
+          intensity,
+          parallel: true,
+        };
+        const prompt = buildAgentPrompt(config);
+        expect(isIntensityToken(prompt, lang, intensity)).toBe(true);
+      });
+    }
+  }
+
+  it("returns a different orchestrator prompt per intensity in en (triangulation)", () => {
+    const liteCfg = {
+      ...baseConfig,
+      language: "en" as const,
+      intensity: "lite" as const,
+      parallel: true,
+    };
+    const ultraCfg = {
+      ...baseConfig,
+      language: "en" as const,
+      intensity: "ultra" as const,
+      parallel: true,
+    };
+    expect(buildAgentPrompt(liteCfg)).not.toBe(buildAgentPrompt(ultraCfg));
+  });
+
+  it("merged-report docs remain compatible with the optional [tag] prefix (zh)", () => {
+    const config = { ...baseConfig, language: "zh" as const, parallel: true };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toMatch(/\[(tag|yagni|delete|shrink|stdlib|native)\]/);
+  });
+
+  it("merged-report docs remain compatible with the optional [tag] prefix (en)", () => {
+    const config = { ...baseConfig, language: "en" as const, parallel: true };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toMatch(/\[(tag|yagni|delete|shrink|stdlib|native)\]/);
+  });
+});
+
+describe("fixer prompt — excludes simplification findings from auto-fix (Phase 3)", () => {
+  // The five tags are spelled in source so a literal substring assertion is a
+  // behavioral guard: a fixer's prompt that omits even one tag leaves a hole.
+  const ALL_FIVE_TAGS = ["delete", "yagni", "shrink", "stdlib", "native"];
+
+  it("names all five simplification tags in zh", () => {
+    const config = { ...baseConfig, language: "zh" as const };
+    const prompt = buildFixerPrompt(config);
+    for (const tag of ALL_FIVE_TAGS) {
+      expect(prompt).toContain(tag);
+    }
+  });
+
+  it("names all five simplification tags in en", () => {
+    const config = { ...baseConfig, language: "en" as const };
+    const prompt = buildFixerPrompt(config);
+    for (const tag of ALL_FIVE_TAGS) {
+      expect(prompt).toContain(tag);
+    }
+  });
+
+  it("explicitly forbids auto-fix in zh", () => {
+    const config = { ...baseConfig, language: "zh" as const };
+    const prompt = buildFixerPrompt(config);
+    // Defense-in-depth: a Chinese-positive exclusion phrase must appear near
+    // the tag list. Acceptable phrasings include 不自动修复 / 不要修复 /
+    // 禁止修复 / 不会自动修复. The presence of any one is the contract.
+    expect(prompt).toMatch(
+      /(不自动修复|不要(自动)?修复|禁止自动修复|不会自动修复|不修复)/,
+    );
+  });
+
+  it("explicitly forbids auto-fix in en", () => {
+    const config = { ...baseConfig, language: "en" as const };
+    const prompt = buildFixerPrompt(config);
+    expect(prompt).toMatch(/never\s+(auto[-\s]?fix|fix)/i);
+    // Belt-and-suspenders: "do not auto-fix" is also an acceptable phrasing.
+    expect(prompt).toMatch(/(do\s+not\s+(auto[-\s]?fix|fix))/i);
   });
 });

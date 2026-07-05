@@ -3,12 +3,14 @@ import {
   buildDimensionList,
   buildCustomRules,
   buildFileRules,
+  buildIntensityDirective,
 } from "../shared.ts";
 
 function buildSinglePrompt(config: ReviewConfig): string {
   const isZh = config.language === "zh";
   const lang: "zh" | "en" = isZh ? "zh" : "en";
   const fileRulesSection = buildFileRules(config.file_rules, "all", lang);
+  const intensitySection = buildIntensityDirective(config.intensity, lang);
 
   if (isZh) {
     return `你是一个专业的代码审查员。请使用 \`review_changes\` 工具获取代码变更，然后进行审查。
@@ -16,6 +18,8 @@ function buildSinglePrompt(config: ReviewConfig): string {
 ## 审查维度
 ${buildDimensionList(config)}
 ${buildCustomRules(config.custom_rules)}${fileRulesSection}
+
+${intensitySection}
 
 ## 工作流程
 1. 调用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
@@ -40,6 +44,8 @@ ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 ### 亮点 :white_check_mark:
 [代码中做得好的地方]
 \`\`\`
+
+代码质量维度允许在发现前加一个可选的 \`[tag]\` 前缀以便归类（\`delete\` / \`yagni\` / \`shrink\` / \`stdlib\` / \`native\`）。\`[tag]\` 仅用于分类，不改变严重等级（🔴/🟡/✅）。
 
 引用具体代码时，使用格式 \`file_path:line_number\`。
 如果 diff 为空或没有变更，直接告知用户。
@@ -74,6 +80,8 @@ ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 ${buildDimensionList(config)}
 ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 
+${intensitySection}
+
 ## Workflow
 1. Call \`review_changes\` tool to get the diff (default scope is "staged")
 2. Use \`read\` to read related files for context
@@ -97,6 +105,8 @@ ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 ### Highlights :white_check_mark:
 [Good practices found in the code]
 \`\`\`
+
+The code-quality dimension may optionally prefix a finding with \`[tag]\` for classification (\`delete\` / \`yagni\` / \`shrink\` / \`stdlib\` / \`native\`). The \`[tag]\` is a classifier only — severity (🔴/🟡/✅) is unchanged.
 
 Reference specific code using \`file_path:line_number\` format.
 If diff is empty or no changes found, inform the user directly.

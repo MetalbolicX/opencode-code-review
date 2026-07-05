@@ -1,6 +1,10 @@
 import type { ReviewConfig } from "../../config.ts";
 import { getDimensionPrompts } from "../../dimensions/index.ts";
-import { buildFileRules, buildScopedRuleSummary } from "../shared.ts";
+import {
+  buildFileRules,
+  buildIntensityDirective,
+  buildScopedRuleSummary,
+} from "../shared.ts";
 import { buildSinglePrompt } from "./single.ts";
 
 const REPORT_FORMAT: Record<string, string> = {
@@ -20,7 +24,9 @@ const REPORT_FORMAT: Record<string, string> = {
 
 ### 亮点 :white_check_mark:
 [代码中做得好的地方]
-\`\`\``,
+\`\`\`
+
+代码质量维度的发现可能带可选的 \`[tag]\` 前缀（\`delete\` / \`yagni\` / \`shrink\` / \`stdlib\` / \`native\`）。合并报告时保留这个前缀，不要因此改变严重等级（🔴/🟡/✅）。`,
   en: `## Output Format
 
 \`\`\`
@@ -37,7 +43,9 @@ const REPORT_FORMAT: Record<string, string> = {
 
 ### Highlights :white_check_mark:
 [Good practices found in the code]
-\`\`\``,
+\`\`\`
+
+The code-quality dimension may optionally prefix findings with \`[tag]\` (\`delete\` / \`yagni\` / \`shrink\` / \`stdlib\` / \`native\`). Preserve the \`[tag]\` prefix in the merged report — it does not change severity (🔴/🟡/✅).`,
 };
 
 const AUTO_FIX_INSTRUCTION: Record<string, string> = {
@@ -70,12 +78,15 @@ const buildParallelPrompt = (config: ReviewConfig): string => {
     lang,
   );
   const scopedSummarySection = buildScopedRuleSummary(config.file_rules, lang);
+  const intensitySection = buildIntensityDirective(config.intensity, lang);
 
   if (lang === "zh") {
     return `你是一个代码审查调度器。你的任务是并行调度多个维度审查子代理，收集结果，并生成统一报告。
 
 ## 可用维度代理
 ${dimensionList}
+
+${intensitySection}
 
 ## 工作流程
 1. 使用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
@@ -98,6 +109,8 @@ ${AUTO_FIX_INSTRUCTION.zh}`;
 
 ## Available Dimension Agents
 ${dimensionList}
+
+${intensitySection}
 
 ## Workflow
 1. Use the \`review_changes\` tool to get the diff (default scope is "staged")
