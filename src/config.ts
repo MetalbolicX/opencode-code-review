@@ -9,6 +9,10 @@ import {
   type RuleFilesFs,
 } from "./rule-files.ts";
 
+export type ReviewIntensity = "lite" | "full" | "ultra";
+
+const VALID_INTENSITIES: readonly ReviewIntensity[] = ["lite", "full", "ultra"];
+
 export interface ReviewConfig {
   language: string;
   dimensions: string[];
@@ -25,6 +29,12 @@ export interface ReviewConfig {
    */
   file_rules: RuleFile[];
   parallel: boolean;
+  /**
+   * Strictness level applied to the simplification lens within
+   * `code-quality`. Anything other than `lite` | `full` | `ultra`
+   * (including missing) is normalised to `"full"` by `loadConfig`.
+   */
+  intensity: ReviewIntensity;
 }
 
 const DEFAULT_CONFIG: ReviewConfig = {
@@ -44,6 +54,7 @@ const DEFAULT_CONFIG: ReviewConfig = {
   custom_rules: [],
   file_rules: [],
   parallel: true,
+  intensity: "full",
 };
 
 const CONFIG_FILENAME = "review.json";
@@ -121,5 +132,20 @@ export const loadConfig = async (projectDir: string): Promise<ReviewConfig> => {
       ...(projectCfg?.trigger ?? {}),
     },
     file_rules: fileRules,
+    intensity: normalizeIntensity((projectCfg ?? globalCfg ?? {}).intensity),
   };
+};
+
+/**
+ * Coerce a raw `intensity` value from config (or `undefined`) into a valid
+ * `ReviewIntensity`. Anything outside the allowed set falls back to `"full"`,
+ * which is the documented default and keeps the loader strictly additive.
+ */
+const normalizeIntensity = (raw: unknown): ReviewIntensity => {
+  if (typeof raw === "string") {
+    if ((VALID_INTENSITIES as readonly string[]).includes(raw)) {
+      return raw as ReviewIntensity;
+    }
+  }
+  return "full";
 };
