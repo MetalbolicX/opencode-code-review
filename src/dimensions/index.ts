@@ -1,11 +1,89 @@
 import type { RuleFile } from "../rule-files.ts";
 import type { ReviewConfig } from "../config.ts";
+import { buildIntensityDirective } from "../prompts/shared.ts";
 
 export interface DimensionPrompt {
   name: string;
   agentName: string;
   prompt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Simplification tags (code-quality dimension only)
+//
+// The five allowed tags are the only simplification classification this
+// dimension is permitted to emit. Sharing one array across the zh/en
+// bodies and the OUTPUT_FORMAT keeps the tag list in lock-step — adding
+// a tag means changing one constant instead of two prose blocks.
+// ---------------------------------------------------------------------------
+
+const SIMPLIFICATION_TAGS = [
+  "delete",
+  "yagni",
+  "shrink",
+  "stdlib",
+  "native",
+] as const;
+
+/** Render the tag list as inline backticked words with a language-native separator. */
+const formatTagList = (lang: "zh" | "en"): string => {
+  const quoted = SIMPLIFICATION_TAGS.map((t) => `\`${t}\``);
+  return lang === "zh" ? quoted.join("、") : quoted.join(", ");
+};
+
+/** Per-language bullet descriptions for each simplification tag. */
+const SIMPLIFICATION_TAG_BULLETS: Record<"zh" | "en", string> = {
+  zh: [
+    "- `delete`：可删除的冗余（未使用代码、已弃用分支、可移除注释）",
+    "- `yagni`：当前未使用、仅为推测未来需要而存在的逻辑",
+    "- `shrink`：仅当**行为完全等价**的改写（输出、副作用、错误处理、资源释放均不变）",
+    "- `stdlib`：可替换为标准库或已有依赖的同等能力",
+    "- `native`：可替换为语言或平台内置能力的同等能力",
+  ].join("\n"),
+  en: [
+    "- `delete`: deletable redundancy (unused code, dead branches, removable comments)",
+    "- `yagni`: logic that exists only for speculative future needs",
+    "- `shrink`: behavior-equivalent rewrites only (outputs, side effects, error handling, resource release all preserved)",
+    "- `stdlib`: replaceable by the standard library or an existing dependency",
+    "- `native`: replaceable by a language or platform built-in",
+  ].join("\n"),
+};
+
+/**
+ * Simplification lens body — appended to the `code-quality` dimension prompt.
+ *
+ * Holds the five tag definitions, the shrink-equivalence rule, and the
+ * functional safety boundary. Kept per language so reviewers see native
+ * wording, but the underlying tag list is shared via `SIMPLIFICATION_TAGS`.
+ */
+const SIMPLIFICATION_SECTION: Record<"zh" | "en", string> = {
+  zh: `## 精简机会（代码质量维度专属）
+按 ${formatTagList("zh")} 这五类标签给出精简建议，每条建议都必须落在**功能性安全边界**内：
+
+${SIMPLIFICATION_TAG_BULLETS.zh}
+
+## 功能性安全边界
+不要在以下情况推荐精简：
+- 会改变**行为**、**输出**或**副作用**的
+- 会削弱**输入校验**、**错误处理**或**资源释放**的
+- 会削弱**安全性**（含访问控制、密钥、注入防护）
+- 会削弱**可访问性**（accessibility）
+- 会削弱**性能关键路径**（hot path）
+`,
+  en: `## Simplification Lens (code-quality only)
+Surface simplification opportunities using the ${formatTagList("en")} tags below. Every finding MUST respect the functional safety boundary.
+
+${SIMPLIFICATION_TAG_BULLETS.en}
+
+## Functional Safety Boundary
+Do not recommend a simplification that:
+- changes **behavior**, **output**, or **side effects**
+- weakens **input validation**, **error handling**, or **resource release**
+- weakens **security** (auth, secrets, injection defense)
+- weakens **accessibility**
+- weakens a **performance hot path**
+`,
+};
 
 // ---------------------------------------------------------------------------
 // Built-in dimensions
@@ -26,7 +104,9 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - 结构：函数/方法是否过长、职责是否单一
 - 规范：是否符合项目编码规范
 - 重复代码：是否存在可提取的重复逻辑
-- 错误处理：是否有适当的异常处理`,
+- 错误处理：是否有适当的异常处理
+
+${SIMPLIFICATION_SECTION.zh}`,
     en: `You are an expert reviewer focused on **code quality**. Use the \`review_changes\` tool to get code changes, then review them.
 
 ## Review Focus
@@ -34,7 +114,9 @@ const DIMENSIONS: Record<string, { zh: string; en: string }> = {
 - Structure: function/method length, single responsibility
 - Conventions: adherence to project coding standards
 - Duplication: extractable repeated logic
-- Error handling: appropriate exception handling`,
+- Error handling: appropriate exception handling
+
+${SIMPLIFICATION_SECTION.en}`,
   },
   security: {
     zh: `你是一个专注于**安全性**审查的专家。使用 \`review_changes\` 工具获取代码变更，然后进行审查。
@@ -193,12 +275,16 @@ const OUTPUT_FORMAT: Record<string, string> = {
 - 🟡 **[file_path:line_number]** 建议：描述
 - ✅ **[file_path:line_number]** 亮点：描述
 
+精简类发现可在前面加上可选的 \`[tag]\` 前缀以便归类，例：${formatTagList("zh")}。\`[tag]\` 只是归类标记，不会改变严重等级（🔴/🟡/✅）。
+
 如果没有发现，输出"该维度未发现问题"。`,
   en: `## Output Format
 For each finding, use:
 - 🔴 **[file_path:line_number]** Critical: description
 - 🟡 **[file_path:line_number]** Suggestion: description
 - ✅ **[file_path:line_number]** Highlight: description
+
+Simplification findings may optionally prefix the line with a \`[tag]\` for classification, e.g. ${formatTagList("en")}. The \`[tag]\` is a classifier only — it does not change severity (🔴/🟡/✅).
 
 If no issues found, output "No issues found for this dimension."`,
 };
@@ -265,7 +351,11 @@ const buildDimensionPrompt = (
   const content = DIMENSIONS[dimension];
   if (!content) return "";
   const lang = config.language === "zh" ? "zh" : "en";
-  return `${content[lang]}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}`;
+  const intensitySection =
+    dimension === "code-quality"
+      ? `\n\n${buildIntensityDirective(config.intensity, lang)}`
+      : "";
+  return `${content[lang]}${intensitySection}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}`;
 };
 
 /**

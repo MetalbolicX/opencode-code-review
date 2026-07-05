@@ -31,6 +31,7 @@ const baseConfig: ReviewConfig = {
   custom_rules: [],
   file_rules: [],
   parallel: true,
+  intensity: "full",
 };
 
 const rule = (
@@ -288,4 +289,108 @@ describe("getDimensionPrompts — rule injection", () => {
     expect(api?.prompt).toContain("Version your routes.");
     expect(sec?.prompt).not.toContain("Version your routes.");
   });
+});
+
+// ---------------------------------------------------------------------------
+// Simplification lens (code-quality dimension body, zh+en)
+//
+// Phase 2 contract:
+//   • all five tags (`delete`, `yagni`, `shrink`, `stdlib`, `native`) appear
+//     in both languages
+//   • functional boundary text forbids behavior/validation/security/
+//     accessibility regressions
+//   • the `shrink` rule is explicitly behavior-equivalent only
+//   • `buildIntensityDirective` is appended at the active intensity
+//   • `OUTPUT_FORMAT` documents an optional `[tag]` prefix while preserving
+//     🔴/🟡/✅ severities
+// ---------------------------------------------------------------------------
+
+const SIMPLIFICATION_TAGS = [
+  "delete",
+  "yagni",
+  "shrink",
+  "stdlib",
+  "native",
+] as const;
+
+describe("getDimensionPrompts — code-quality simplification lens", () => {
+  for (const lang of ["zh", "en"] as const) {
+    const config = {
+      ...baseConfig,
+      language: lang,
+      dimensions: ["code-quality"],
+    };
+
+    it(`includes all 5 simplification tags (${lang})`, () => {
+      const prompts = getDimensionPrompts(config);
+      const prompt = prompts[0]?.prompt ?? "";
+      for (const tag of SIMPLIFICATION_TAGS) {
+        expect(prompt).toContain(tag);
+      }
+    });
+
+    it(`states the functional safety boundary in ${lang}`, () => {
+      // The body must forbid simplifications that change behavior, weaken
+      // validation, drop security, or drop accessibility. We check only
+      // language-stable tokens so the test survives prose adjustments.
+      const prompts = getDimensionPrompts(config);
+      const prompt = (prompts[0]?.prompt ?? "").toLowerCase();
+      const markers = ["behavior", "validation", "security", "accessibility"];
+      // Chinese prompt uses behavior/validation/security/accessibility
+      // translations; markers check is for English; for zh we look at the
+      // Chinese equivalents below.
+      if (lang === "en") {
+        for (const m of markers) expect(prompt).toContain(m);
+      } else {
+        // zh markers
+        expect(prompt).toMatch(/行为/);
+        expect(prompt).toMatch(/校验/);
+        expect(prompt).toMatch(/安全/);
+        expect(prompt).toMatch(/可访问性|无障碍/);
+      }
+    });
+
+    it(`calls out shrink = behavior-equivalent only (${lang})`, () => {
+      const prompts = getDimensionPrompts(config);
+      const prompt = prompts[0]?.prompt ?? "";
+      // shrink must appear next to behavior-equivalence wording.
+      expect(prompt).toContain("shrink");
+      if (lang === "en") {
+        expect(prompt).toMatch(/shrink[\s\S]*equivalent/i);
+      } else {
+        // zh body uses 行为完全等价 / 行为等价; accept either phrasing
+        // as long as it follows the `shrink` token.
+        expect(prompt).toMatch(/shrink[\s\S]*行为(?:完全)?等价/);
+      }
+    });
+
+    it(`appends the intensity directive at the active level (${lang})`, () => {
+      const probes = [
+        { intensity: "lite", enMarker: "lite", zhMarker: "lite" },
+        { intensity: "full", enMarker: "default", zhMarker: "默认" },
+        { intensity: "ultra", enMarker: "aggressive", zhMarker: "激进" },
+      ] as const;
+      for (const p of probes) {
+        const cfg = {
+          ...config,
+          intensity: p.intensity,
+        };
+        const prompts = getDimensionPrompts(cfg);
+        const text = prompts[0]?.prompt ?? "";
+        expect(text).toContain(p.intensity);
+        const marker = lang === "en" ? p.enMarker : p.zhMarker;
+        expect(text).toContain(marker);
+      }
+    });
+
+    it(`documents the optional [tag] prefix in OUTPUT_FORMAT (${lang})`, () => {
+      const prompts = getDimensionPrompts(config);
+      const prompt = prompts[0]?.prompt ?? "";
+      // The output-format section must show a `[tag]` placeholder.
+      expect(prompt).toMatch(/\[(tag|yagni)\]/);
+      // Severity model must remain — at least one of 🔴 / 🟡 / ✅ should
+      // still appear in the output-format section.
+      expect(prompt).toMatch(/🔴|🟡|✅/);
+    });
+  }
 });

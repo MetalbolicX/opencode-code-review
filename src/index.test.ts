@@ -13,6 +13,7 @@ vi.mock("./config.ts", () => ({
     custom_rules: [],
     file_rules: [],
     parallel: true,
+    intensity: "full",
   }),
 }));
 
@@ -67,6 +68,7 @@ describe("session.idle failure retry", () => {
       custom_rules: [],
       file_rules: [],
       parallel: true,
+      intensity: "full",
     });
 
     const promptAsync = vi
