@@ -24,7 +24,7 @@ const opencodeReview: Plugin = async ({
   const config = await loadConfig(directory);
   const agentPrompt = buildAgentPrompt(config);
   const fixerPrompt = buildFixerPrompt(config);
-  const dimensionPrompts = getDimensionPrompts(config);
+  const dimensionPrompts = getDimensionPrompts(config, config.file_rules);
 
   let autoEnabled = config.trigger.auto_on_idle;
   let lastAutoReviewTime = 0;

@@ -103,3 +103,35 @@ describe("session.idle failure retry", () => {
     expect(promptAsync).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("parallel review:dim-* rule threading", () => {
+  it("registers a review:dim-* prompt containing configured file rule body text", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [
+        {
+          path: "/x.md",
+          scope: "project",
+          dimensions: [],
+          body: "NEVER_USE_DEPRECATED_API",
+        },
+      ],
+      parallel: true,
+      intensity: "full",
+    });
+
+    const result = await opencodeReview(makeFakeContext());
+
+    // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
+    const openCodeConfig: Record<string, any> = {};
+    result.config?.(openCodeConfig);
+
+    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+      "NEVER_USE_DEPRECATED_API",
+    );
+  });
+});
