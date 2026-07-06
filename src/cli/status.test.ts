@@ -107,4 +107,10 @@ describe("runStatus", () => {
     expect(r.installed).toBe(false);
     expect(r.specifier).toBeNull();
   });
+
+  it("throws a descriptive error when the config file is malformed JSON", () => {
+    const fs = createMemFs({ [CONFIG]: "{broken" });
+    expect(() => runStatus(fs)).toThrow(/malformed JSON/);
+    expect(() => runStatus(fs)).toThrow(CONFIG);
+  });
 });

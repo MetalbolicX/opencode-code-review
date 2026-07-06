@@ -34,12 +34,28 @@ const formatFromPath = (path: string): "json" | "jsonc" =>
  * Read-only status probe. Prints a human-readable report to stdout and
  * returns the same data as a structured result so callers (including
  * `main.ts` and tests) can consume it without parsing the message.
+ *
+ * If the global config exists but cannot be parsed, this throws a
+ * descriptive error before producing any `Installed:` output. That keeps
+ * `status` aligned with `install` / `uninstall`, which both refuse to
+ * silently treat malformed JSON as "not installed". The shared
+ * dispatcher in `main.ts` catches the throw and returns exit code 1.
  */
 export const runStatus = (
   fs: CliFs = createRealFs(),
   env: NodeJS.ProcessEnv = process.env,
 ): StatusResult => {
   const loaded = loadGlobalConfig(fs, env);
+
+  if (loaded.parseError) {
+    throw new Error(
+      `Config file is malformed JSON — aborting to avoid a misleading status.\n` +
+        `  path:  ${loaded.path}\n` +
+        `  error: ${loaded.parseError}\n` +
+        `Fix the JSON error and re-run.`,
+    );
+  }
+
   const plugins = normalizePlugin(loaded.config.plugin);
   const reviewEntries = plugins.filter(matchesReviewPlugin);
   const extras = plugins.filter((entry) => !matchesReviewPlugin(entry));

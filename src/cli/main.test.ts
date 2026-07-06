@@ -132,4 +132,16 @@ describe("runMain (dispatcher)", () => {
     expect(r.exitCode).toBe(1);
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("boom"));
   });
+
+  it("returns exit 1 when `status` throws (e.g. malformed global config)", () => {
+    runStatus.mockImplementation(() => {
+      throw new Error("Config file is malformed JSON — aborting.");
+    });
+    const r = runMain(["status"]);
+    expect(r.command).toBe("status");
+    expect(r.exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("malformed JSON"),
+    );
+  });
 });
