@@ -70,6 +70,50 @@ describe("buildAgentPrompt", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Custom rules on parallel path (plan 016)
+//
+// Before the factory + third-arg fix, the parallel orchestrator prompt and
+// its dimension sub-prompts silently dropped `config.custom_rules`. After
+// the fix the orchestrator sees the same Custom Rules block that the
+// single-mode prompt already had, and `getDimensionPrompts` receives the
+// rules via its new third optional argument.
+// ---------------------------------------------------------------------------
+
+describe("parallel-mode custom_rules propagation", () => {
+  it("includes Custom Rules in the parallel orchestrator prompt when non-empty", () => {
+    const config = {
+      ...baseConfig,
+      parallel: true,
+      custom_rules: ["no-console-log", "prefer-const"],
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toContain("Custom Rules");
+    expect(prompt).toContain("- no-console-log");
+    expect(prompt).toContain("- prefer-const");
+  });
+
+  it("does NOT include Custom Rules in the parallel orchestrator prompt when empty", () => {
+    const config = { ...baseConfig, parallel: true, custom_rules: [] };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("Custom Rules");
+  });
+
+  it("renders Custom Rules in both zh and en parallel orchestrators", () => {
+    for (const lang of ["zh", "en"] as const) {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        custom_rules: ["no-console-log"],
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain("Custom Rules");
+      expect(prompt).toContain("- no-console-log");
+    }
+  });
+});
+
 describe("buildFixerPrompt", () => {
   it("returns non-empty output for zh", () => {
     const config = { ...baseConfig, language: "zh" };

@@ -1,6 +1,10 @@
 import type { RuleFile } from "../rule-files.ts";
 import type { ReviewConfig } from "../config.ts";
-import { buildIntensityDirective, formatTagList } from "../prompts/shared.ts";
+import {
+  buildCustomRules,
+  buildIntensityDirective,
+  formatTagList,
+} from "../prompts/shared.ts";
 
 export interface DimensionPrompt {
   name: string;
@@ -334,6 +338,7 @@ const buildDimensionPrompt = (
   dimension: string,
   config: ReviewConfig,
   rules: readonly RuleFile[],
+  customRules?: readonly string[],
 ): string => {
   const content = DIMENSIONS[dimension];
   if (!content) return "";
@@ -342,7 +347,12 @@ const buildDimensionPrompt = (
     dimension === "code-quality"
       ? `\n\n${buildIntensityDirective(config.intensity, lang)}`
       : "";
-  return `${content[lang]}${intensitySection}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}`;
+  // Custom rules land AFTER file-rule bodies so the dimension-scoped and
+  // general markdown guidance stays the primary instruction, with the
+  // configured `custom_rules` bullets appended as a short supplemental list.
+  // `buildCustomRules` keeps its mutable `string[]` signature, so we spread
+  // the readonly input to satisfy it without widening the helper's contract.
+  return `${content[lang]}${intensitySection}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}${buildCustomRules(customRules ? [...customRules] : [])}`;
 };
 
 /**
@@ -352,17 +362,23 @@ const buildDimensionPrompt = (
  * markdown rule documents into every prompt. Each rule appears in prompts
  * for its scoped dimensions plus every general rule appears in all of them.
  *
- * The second argument is optional — callers that don't load rule files
- * still get clean dimension prompts without a rule section.
+ * The optional `customRules` array carries the configured `custom_rules`
+ * bullets and is appended to each dimension prompt after the rule-file
+ * section. Empty arrays (or omission) keep the prompt clean — the section
+ * header is skipped via `buildCustomRules`'s empty-array no-op.
+ *
+ * The second and third arguments are optional — callers that don't load
+ * rule files or custom rules still get clean dimension prompts.
  */
 export const getDimensionPrompts = (
   config: ReviewConfig,
   rules: readonly RuleFile[] = [],
+  customRules?: readonly string[],
 ): DimensionPrompt[] =>
   [...new Set(config.dimensions)]
     .filter((dim) => DIMENSIONS[dim])
     .map((dim) => ({
       name: dim,
       agentName: `review:dim-${dim}`,
-      prompt: buildDimensionPrompt(dim, config, rules),
+      prompt: buildDimensionPrompt(dim, config, rules, customRules),
     }));

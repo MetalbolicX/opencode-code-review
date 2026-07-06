@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ReviewIntensity } from "../config.ts";
 import {
+  buildCustomRules,
   buildIntensityDirective,
   formatTagList,
   formatTagListSlash,
@@ -111,5 +112,44 @@ describe("formatTagListSlash", () => {
     // The slash form is reserved for inline narrative (fixer exclusion,
     // orchestrator prompts). Same render in every language.
     expect(formatTagListSlash()).toContain(" / ");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Custom rules helper (plan 016)
+//
+// `buildCustomRules` renders the configured `custom_rules` bullets into a
+// markdown section appended to prompts. Empty arrays MUST short-circuit to
+// an empty string so callers don't append a stray header in the no-op case.
+// ---------------------------------------------------------------------------
+
+describe("buildCustomRules", () => {
+  it("returns an empty string when the rules array is empty (no-op)", () => {
+    // The empty-array no-op is the spec contract: callers concatenate the
+    // result directly so an empty string keeps the prompt unchanged.
+    expect(buildCustomRules([])).toBe("");
+  });
+
+  it("renders each rule as a markdown bullet under a Custom Rules header", () => {
+    const out = buildCustomRules(["no-console-log", "prefer-const"]);
+    expect(out).toContain("### Custom Rules");
+    expect(out).toContain("- no-console-log");
+    expect(out).toContain("- prefer-const");
+  });
+
+  it("preserves the order of the input array in the rendered bullets", () => {
+    const out = buildCustomRules(["alpha-rule", "beta-rule", "gamma-rule"]);
+    expect(out.indexOf("- alpha-rule")).toBeLessThan(
+      out.indexOf("- beta-rule"),
+    );
+    expect(out.indexOf("- beta-rule")).toBeLessThan(
+      out.indexOf("- gamma-rule"),
+    );
+  });
+
+  it("does not render a header when the array is empty", () => {
+    const out = buildCustomRules([]);
+    expect(out).not.toContain("Custom Rules");
+    expect(out.length).toBe(0);
   });
 });

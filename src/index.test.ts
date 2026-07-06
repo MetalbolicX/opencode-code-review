@@ -135,3 +135,153 @@ describe("parallel review:dim-* rule threading", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// review_changes bound to configured max_diff_lines (plan 016)
+//
+// The factory wraps the singleton so the plugin can hand its
+// `config.max_diff_lines` value into the registered tool. Behavioural
+// coverage asserts that the registered tool's execute function honours the
+// configured default — a regression here would let the broken singleton
+// pattern silently reappear.
+// ---------------------------------------------------------------------------
+
+const longDiffForIndex = Array.from(
+  { length: 100 },
+  (_, i) => `LINE_${i}`,
+).join("\n");
+
+const buildFakeShellForTool = () => {
+  const responses = [
+    { ok: true, stdout: longDiffForIndex },
+    { ok: true, stdout: " foo | 100 +" },
+  ];
+  // biome-ignore lint/suspicious/noExplicitAny: tagged-template shell fake — quiet() chain
+  const shellFn: any = (
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ) => {
+    let _cmd = "";
+    for (let i = 0; i < strings.length; i++) {
+      _cmd += strings[i];
+      if (i < values.length) _cmd += String(values[i]);
+    }
+    const response = responses.shift() ?? { ok: true, stdout: "" };
+    // biome-ignore lint/suspicious/noExplicitAny: shell promise chain in fake
+    const p = Promise.resolve(response) as any;
+    p.quiet = () => p;
+    return p;
+  };
+  return shellFn;
+};
+
+describe("plugin — review_changes max_diff_lines binding", () => {
+  it("registers review_changes with the configured max_diff_lines as default", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 25,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+    });
+
+    const plugin = await opencodeReview(makeFakeContext());
+    const tool = plugin.tool?.review_changes;
+    expect(tool).toBeDefined();
+    expect(typeof (tool as unknown as { execute?: unknown }).execute).toBe(
+      "function",
+    );
+
+    const $ = buildFakeShellForTool();
+    // biome-ignore lint: ToolDefinition.execute is the plugin seam under test
+    const out = await (tool as any).execute({ scope: "staged" }, { $ } as any);
+
+    // 100-line diff gets truncated at the configured 25-line default.
+    expect(out).toContain("LINE_0");
+    expect(out).not.toContain("LINE_50");
+    expect(out).toContain("truncated at 25 lines");
+  });
+
+  it("explicit max_lines argument on review_changes still overrides the bound default", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 25,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+    });
+
+    const plugin = await opencodeReview(makeFakeContext());
+    const tool = plugin.tool?.review_changes;
+
+    const $ = buildFakeShellForTool();
+    // biome-ignore lint: ToolDefinition.execute is the plugin seam under test
+    const out = await (tool as any).execute(
+      { scope: "staged", max_lines: 10 },
+      // biome-ignore lint/suspicious/noExplicitAny: shell-only test context
+      { $ } as any,
+    );
+    expect(out).toContain("LINE_0");
+    expect(out).not.toContain("LINE_50");
+    expect(out).toContain("truncated at 10 lines");
+  });
+});
+
+describe("session.idle malformed event cooldown guard", () => {
+  it("a malformed idle event does not consume cooldown (next valid event still triggers)", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: true, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+    });
+
+    const promptAsync = vi.fn().mockResolvedValue({});
+    const ctx = {
+      project: "",
+      client: { session: { promptAsync } },
+      $: vi.fn(),
+      directory: "/fake",
+      worktree: "",
+      experimental_workspace: "",
+      serverUrl: "",
+    } as unknown as Parameters<typeof opencodeReview>[0];
+
+    const plugin = await opencodeReview(ctx);
+
+    const malformedEvent = {
+      event: {
+        type: "session.idle",
+      },
+    };
+
+    const validEvent = {
+      event: {
+        type: "session.idle",
+        properties: { sessionID: "sess-valid" },
+        id: "sess-valid",
+      },
+    };
+
+    await plugin.event?.(malformedEvent as any);
+    expect(promptAsync).not.toHaveBeenCalled();
+
+    await plugin.event?.(validEvent as any);
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+    expect(promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { id: "sess-valid" },
+      }),
+    );
+  });
+});

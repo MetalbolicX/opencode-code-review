@@ -1,6 +1,7 @@
 import type { ReviewConfig } from "../../config.ts";
 import { getDimensionPrompts } from "../../dimensions/index.ts";
 import {
+  buildCustomRules,
   buildFileRules,
   buildIntensityDirective,
   buildScopedRuleSummary,
@@ -65,7 +66,11 @@ If any dimension agent finds critical issues (🔴), you MUST:
 
 const buildParallelPrompt = (config: ReviewConfig): string => {
   const lang = config.language === "zh" ? "zh" : "en";
-  const dimensions = getDimensionPrompts(config, config.file_rules);
+  const dimensions = getDimensionPrompts(
+    config,
+    config.file_rules,
+    config.custom_rules,
+  );
   const dimensionList = dimensions
     .map((d) => `- ${d.agentName}: ${d.name}`)
     .join("\n");
@@ -78,6 +83,7 @@ const buildParallelPrompt = (config: ReviewConfig): string => {
     lang,
   );
   const scopedSummarySection = buildScopedRuleSummary(config.file_rules, lang);
+  const customRulesSection = buildCustomRules(config.custom_rules);
   const intensitySection = buildIntensityDirective(config.intensity, lang);
 
   if (lang === "zh") {
@@ -98,7 +104,7 @@ ${intensitySection}
    - 关键问题（🔴）→ 建议改进（🟡）→ 亮点（✅）
 5. 对同一代码位置的重复发现进行合并
 6. 输出统一报告
-${generalRulesSection}${scopedSummarySection}
+${generalRulesSection}${scopedSummarySection}${customRulesSection}
 
 ${REPORT_FORMAT.zh}
 
@@ -122,7 +128,7 @@ ${intensitySection}
    - Critical (🔴) → Suggestions (🟡) → Highlights (✅)
 5. Deduplicate overlapping findings at the same code location
 6. Output a unified report
-${generalRulesSection}${scopedSummarySection}
+${generalRulesSection}${scopedSummarySection}${customRulesSection}
 
 ${REPORT_FORMAT.en}
 

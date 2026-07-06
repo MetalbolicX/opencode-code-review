@@ -6,7 +6,10 @@ import {
   buildTogglePrompt,
 } from "./prompts/index.ts";
 import { getDimensionPrompts } from "./dimensions/index.ts";
-import { reviewChanges, createToggleAutoReviewTool } from "./tools/index.ts";
+import {
+  createReviewChangesTool,
+  createToggleAutoReviewTool,
+} from "./tools/index.ts";
 
 interface SessionIdleEvent {
   type: string;
@@ -103,7 +106,7 @@ const opencodeReview: Plugin = async ({
     },
 
     tool: {
-      review_changes: reviewChanges,
+      review_changes: createReviewChangesTool(config.max_diff_lines),
       toggle_auto_review: createToggleAutoReviewTool(
         () => autoEnabled,
         (v) => {
@@ -117,12 +120,12 @@ const opencodeReview: Plugin = async ({
         const now = Date.now();
         if (now - lastAutoReviewTime < config.trigger.cooldown_seconds * 1000)
           return;
-        lastAutoReviewTime = now;
 
         const ev = event as unknown as SessionIdleEvent;
         const sessionID =
           ev.properties?.sessionID ?? ev.properties?.id ?? ev.id;
         if (!sessionID) return;
+        lastAutoReviewTime = now;
 
         try {
           await client.session.promptAsync({

@@ -292,6 +292,101 @@ describe("getDimensionPrompts — rule injection", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Custom rules injection (plan 016)
+//
+// `getDimensionPrompts` accepts an optional third parameter carrying the
+// configured `custom_rules` bullets. Each enabled dimension prompt appends
+// the rules after the rule-file section, and empty arrays stay a no-op so
+// the section header never leaks into the prompt when `custom_rules` is
+// `[]`.
+// ---------------------------------------------------------------------------
+
+describe("getDimensionPrompts — custom_rules injection", () => {
+  it("injects custom rules into every dimension prompt when non-empty (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en",
+      custom_rules: ["no-console-log", "prefer-const"],
+      dimensions: ["security", "testing"],
+    };
+    const prompts = getDimensionPrompts(config, [], config.custom_rules);
+    expect(prompts).toHaveLength(2);
+    for (const p of prompts) {
+      expect(p.prompt).toContain("### Custom Rules");
+      expect(p.prompt).toContain("- no-console-log");
+      expect(p.prompt).toContain("- prefer-const");
+    }
+  });
+
+  it("injects custom rules into every dimension prompt when non-empty (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh",
+      custom_rules: ["不要使用-console-log"],
+      dimensions: ["security"],
+    };
+    const prompts = getDimensionPrompts(config, [], config.custom_rules);
+    expect(prompts[0]?.prompt).toContain("### Custom Rules");
+    expect(prompts[0]?.prompt).toContain("- 不要使用-console-log");
+  });
+
+  it("places the Custom Rules section AFTER the rule-file section", () => {
+    const general = rule("RULES_MARKER", []);
+    const config = {
+      ...baseConfig,
+      language: "en",
+      custom_rules: ["CUSTOM_MARKER"],
+      dimensions: ["security"],
+    };
+    const prompts = getDimensionPrompts(config, [general], ["CUSTOM_MARKER"]);
+    const prompt = prompts[0]?.prompt ?? "";
+    expect(prompt.indexOf("## Review Rules")).toBeGreaterThan(-1);
+    expect(prompt.indexOf("RULES_MARKER")).toBeGreaterThan(-1);
+    expect(prompt.indexOf("### Custom Rules")).toBeGreaterThan(
+      prompt.indexOf("## Review Rules"),
+    );
+    expect(prompt.indexOf("CUSTOM_MARKER")).toBeGreaterThan(
+      prompt.indexOf("### Custom Rules"),
+    );
+  });
+
+  it("preserves rule-file ordering alongside custom rules (no shuffling)", () => {
+    const general = rule("GENERAL_BODY", []);
+    const config = {
+      ...baseConfig,
+      language: "en",
+      custom_rules: ["CUSTOM_RULE"],
+      dimensions: ["security"],
+    };
+    const prompts = getDimensionPrompts(config, [general], ["CUSTOM_RULE"]);
+    const prompt = prompts[0]?.prompt ?? "";
+    const generalIdx = prompt.indexOf("GENERAL_BODY");
+    const customIdx = prompt.indexOf("CUSTOM_RULE");
+    expect(generalIdx).toBeGreaterThan(-1);
+    expect(customIdx).toBeGreaterThan(generalIdx);
+  });
+
+  it("omits the Custom Rules section for an empty custom_rules array", () => {
+    const config = {
+      ...baseConfig,
+      language: "en",
+      custom_rules: [],
+      dimensions: ["security"],
+    };
+    const prompts = getDimensionPrompts(config, [], []);
+    expect(prompts[0]?.prompt).not.toContain("Custom Rules");
+    expect(prompts[0]?.prompt).not.toContain("### Custom");
+  });
+
+  it("accepts an omitted customRules argument (backward compatible)", () => {
+    const config = { ...baseConfig, dimensions: ["security"] };
+    const prompts = getDimensionPrompts(config); // no second/third arg
+    expect(prompts[0]?.prompt).not.toContain("Custom Rules");
+    expect(prompts[0]?.prompt).not.toContain("## Review Rules");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Simplification lens (code-quality dimension body, zh+en)
 //
 // Phase 2 contract:
