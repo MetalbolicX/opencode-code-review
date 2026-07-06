@@ -1,6 +1,6 @@
 {
   "name": "opencode-code-review",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A review agent plugin for OpenCode CLI - structured code review with configurable dimensions",
   "type": "module",
   "main": "dist/plugin.mjs",
@@ -20,7 +20,8 @@
     "lint": "biome check src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test"
+    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test",
+    "prepublishOnly": "pnpm build"
   },
   "keywords": [
     "opencode",
