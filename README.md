@@ -101,7 +101,19 @@ Create `.opencode/review.json` in your project (or `~/.config/opencode/review.js
     "All API endpoints must have error handling",
     "Database queries must use parameterized statements"
   ],
-  "intensity": "full"
+  "intensity": "full",
+  "parallel": true,
+  "profile": "default"
+}
+```
+
+### Thermo-Nuclear Profile Example
+
+```json
+{
+  "profile": "thermo-nuclear",
+  "dimensions": ["code-quality", "security"],
+  "parallel": true
 }
 ```
 
@@ -116,6 +128,8 @@ Create `.opencode/review.json` in your project (or `~/.config/opencode/review.js
 | `trigger.cooldown_seconds` | Minimum interval between auto-reviews (seconds) | `120` |
 | `custom_rules` | Additional project-specific rules | `[]` |
 | `intensity` | Simplification-lens strictness (`"lite"` / `"full"` / `"ultra"`); see [Code Quality Simplification Lens](#code-quality-simplification-lens) | `"full"` |
+| `parallel` | Run dimension sub-agents in parallel (`true`) or sequentially (`false`) | `true` |
+| `profile` | Review profile (`"default"` or `"thermo-nuclear"`); see [Profiles](#profiles) | `"default"` |
 
 ## Code Quality Simplification Lens
 
@@ -176,6 +190,91 @@ The `[tag]` is a classifier only — it does **not** change the severity (🔴 /
 The auto-fixer is explicitly forbidden from touching simplification findings, even when other findings in the same review are auto-fixable. This is a defense-in-depth rule: if a simplification issue is forwarded to the fixer, it is reported as `⚠️ ... Simplification finding, do not auto-fix` instead of being patched. All five tags — `delete`, `yagni`, `shrink`, `stdlib`, `native` — are excluded from auto-fix.
 
 Simplification requires human judgment because auto-fixing it can change behavior, weaken validation, or shift semantics. If you want a finding fixed, apply it manually after review.
+
+## Profiles
+
+`profile` selects a review profile that changes the tone, depth, and scope of the review. The default profile (`"default"`) is balanced for general use. The `"thermo-nuclear"` profile is an opt-in mode for teams that want maximum rigor.
+
+### `thermo-nuclear`
+
+**Opt-in.** Activated by setting `profile: "thermo-nuclear"` in `.opencode/review.json`.
+
+This profile applies a structural-simplification lens to the `code-quality` dimension — it actively flags code that can be deleted, replaced with stdlib, or shrunk without changing behaviour. It is not a sixth dimension; it overlays the `code-quality` dimension with sharper criteria.
+
+**How it differs from `intensity`:**
+
+| Dimension | `intensity` | `profile` |
+|-----------|-------------|-----------|
+| Scope | Only `code-quality` | Only `code-quality` |
+| Effect | How hard the lens scans | What the lens is looking for |
+| Tags | N/A | Adds structural tags (`delete`, `yagni`, `shrink`, `stdlib`, `native`) |
+| Auto-fixer | Affected by `intensity` level | Explicitly blocked for all thermo findings |
+
+The two settings are independent and compose: you can run `profile: "thermo-nuclear"` with any `intensity` value.
+
+```json
+{
+  "profile": "thermo-nuclear"
+}
+```
+
+## Parallel Mode
+
+`parallel` controls whether dimension sub-agents run concurrently or sequentially.
+
+| Value | Behaviour |
+|-------|-----------|
+| `true` (default) | All enabled dimensions spawn as independent sub-agents and run concurrently |
+| `false` | Dimensions run one after another in the order listed in `dimensions` |
+
+Parallel mode is faster for multi-dimension reviews but uses more concurrent agent slots. Sequential mode is useful for constrained environments or when dimension results need to be ordered.
+
+```json
+{
+  "parallel": false
+}
+```
+
+## File Rules
+
+File rules let you add dimension-specific guidance that applies only to certain files or directories. Rules are defined in `.opencode/review-rules/` directories within your project.
+
+### Directory Structure
+
+```
+.opencode/
+  review-rules/
+    <dimension>/
+      <rule-name>.md   # general rule — applies to all files in the project
+    <dimension>/
+      <subdir>/        # scoped rule — applies only to files under <subdir>
+        <rule-name>.md
+```
+
+### Rule File Format
+
+```markdown
+# Rule title (first line becomes the rule identifier)
+
+Additional context and guidance for the reviewer.
+Can include multiple paragraphs, code examples, etc.
+```
+
+### Routing
+
+- Files directly under `.opencode/review-rules/<dimension>/` are **general rules** — injected into every review for that dimension regardless of which files changed.
+- Files in sub-directories under `.opencode/review-rules/<dimension>/` are **scoped rules** — injected only when the review touches files within that sub-directory's path.
+
+### Example
+
+```
+.opencode/
+  review-rules/
+    security/
+      no-sql-injection.md          # general — applies to all security reviews
+      auth/
+        mfa-required.md             # scoped — only when auth/ files are changed
+```
 
 ## License
 
