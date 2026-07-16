@@ -174,6 +174,17 @@ describe("reviewChanges", () => {
       }
     });
 
+    it("returns an explicit error when git symbolic-ref fails and there is no fallback", async () => {
+      // When git symbolic-ref throws (not returns an unsafe name), the function
+      // should return an explicit error rather than silently falling back to "main".
+      const $ = makeShell([{ ok: false, error: "fatal: not a valid ref" }]);
+      const tool = createReviewChangesTool(500);
+      const result = await tool.execute({ scope: "branch" }, makeContext($));
+      // Should return an explicit error, not silently use "main"
+      expect(result as string).toContain("[Error]");
+      expect(result as string).toContain("Could not determine default branch");
+    });
+
     it("returns [Error] and skips diff commands when the resolved default branch is unsafe", async () => {
       const $ = makeShell([{ ok: true, stdout: "refs/remotes/origin/a;b\n" }]);
       const result = await reviewChanges.execute(

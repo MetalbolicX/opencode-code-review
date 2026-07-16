@@ -17,6 +17,17 @@ interface SessionIdleEvent {
   id?: string;
 }
 
+/**
+ * Extract session ID from a session.idle event.
+ * Priority: properties.sessionID > properties.id > top-level id
+ * Returns undefined if no ID is present.
+ */
+export const extractSessionId = (
+  event: SessionIdleEvent,
+): string | undefined => {
+  return event.properties?.sessionID ?? event.properties?.id ?? event.id;
+};
+
 const opencodeReview: Plugin = async ({
   project: _project,
   client,
@@ -27,7 +38,11 @@ const opencodeReview: Plugin = async ({
   const config = await loadConfig(directory);
   const agentPrompt = buildAgentPrompt(config);
   const fixerPrompt = buildFixerPrompt(config);
-  const dimensionPrompts = getDimensionPrompts(config, config.file_rules);
+  const dimensionPrompts = getDimensionPrompts(
+    config,
+    config.file_rules,
+    config.custom_rules,
+  );
 
   let autoEnabled = config.trigger.auto_on_idle;
   let lastAutoReviewTime = 0;
@@ -122,8 +137,7 @@ const opencodeReview: Plugin = async ({
           return;
 
         const ev = event as unknown as SessionIdleEvent;
-        const sessionID =
-          ev.properties?.sessionID ?? ev.properties?.id ?? ev.id;
+        const sessionID = extractSessionId(ev);
         if (!sessionID) return;
         lastAutoReviewTime = now;
 

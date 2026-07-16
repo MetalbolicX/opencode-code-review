@@ -37,6 +37,7 @@ const defaultConfig = {
   file_rules: [] as unknown as never[],
   parallel: true,
   intensity: "full" as const,
+  profile: "default" as const,
 };
 
 describe("loadConfig", () => {
@@ -196,6 +197,79 @@ describe("loadConfig", () => {
         );
       const config = await loadConfig("/fake/project");
       expect(config.intensity).toBe(want);
+    }
+  });
+
+  // -- profile normalization -------------------------------------------------
+  // The spec says profile must default to "default", accept "default"/"thermo-nuclear",
+  // and normalize any other/missing value to "default". These tests pin all four.
+
+  it("profile defaults to 'default' when no config files exist", async () => {
+    vi.mocked(readFile).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("global config profile is applied when project is missing", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "thermo-nuclear" }))
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("thermo-nuclear");
+  });
+
+  it("project config profile overrides global", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "thermo-nuclear" }))
+      .mockResolvedValueOnce(JSON.stringify({ profile: "default" }));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("invalid profile value in project config falls back to 'default'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "extreme" }))
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("invalid profile value in global config falls back to 'default'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "ultra-aggressive" }))
+      .mockResolvedValueOnce(JSON.stringify({}));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("missing profile field in both configs resolves to 'default'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ language: "en" }))
+      .mockResolvedValueOnce(JSON.stringify({ dimensions: ["security"] }));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("profile normalization accepts every valid literal", async () => {
+    const expected: Record<"default" | "thermo-nuclear", string> = {
+      default: "default",
+      "thermo-nuclear": "thermo-nuclear",
+    };
+    for (const [value, want] of Object.entries(expected)) {
+      vi.mocked(readFile).mockReset();
+      vi.mocked(readFile)
+        .mockResolvedValueOnce(JSON.stringify({ profile: value }))
+        .mockRejectedValue(
+          Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+        );
+      const config = await loadConfig("/fake/project");
+      expect(config.profile).toBe(want);
     }
   });
 });

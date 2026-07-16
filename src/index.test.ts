@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { PluginInput } from "@opencode-ai/plugin";
-import opencodeReview from "./index.ts";
+import opencodeReview, { extractSessionId } from "./index.ts";
 
 const { loadConfig } = await import("./config.ts");
 
@@ -14,6 +14,7 @@ vi.mock("./config.ts", () => ({
     file_rules: [],
     parallel: true,
     intensity: "full",
+    profile: "default",
   }),
 }));
 
@@ -69,6 +70,7 @@ describe("session.idle failure retry", () => {
       file_rules: [],
       parallel: true,
       intensity: "full",
+      profile: "default",
     });
 
     const promptAsync = vi
@@ -122,6 +124,7 @@ describe("parallel review:dim-* rule threading", () => {
       ],
       parallel: true,
       intensity: "full",
+      profile: "default",
     });
 
     const result = await opencodeReview(makeFakeContext());
@@ -132,6 +135,64 @@ describe("parallel review:dim-* rule threading", () => {
 
     expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
       "NEVER_USE_DEPRECATED_API",
+    );
+  });
+});
+
+describe("custom_rules threading into dimension prompts", () => {
+  it("registers a review:dim-* prompt containing configured custom rule text", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [
+        "All API endpoints must implement retry logic with exponential backoff",
+      ],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+      profile: "default",
+    });
+
+    const result = await opencodeReview(makeFakeContext());
+
+    // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
+    const openCodeConfig: Record<string, any> = {};
+    result.config?.(openCodeConfig);
+
+    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+      "All API endpoints must implement retry logic with exponential backoff",
+    );
+  });
+
+  it("threads multiple custom rules into dimension prompts", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "en",
+      dimensions: ["code-quality", "security"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [
+        "Rule one: no console.log in production",
+        "Rule two: all functions must have JSDoc",
+      ],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+      profile: "default",
+    });
+
+    const result = await opencodeReview(makeFakeContext());
+
+    // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
+    const openCodeConfig: Record<string, any> = {};
+    result.config?.(openCodeConfig);
+
+    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+      "Rule one: no console.log in production",
+    );
+    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+      "Rule two: all functions must have JSDoc",
     );
   });
 });
@@ -186,6 +247,7 @@ describe("plugin — review_changes max_diff_lines binding", () => {
       file_rules: [],
       parallel: true,
       intensity: "full",
+      profile: "default",
     });
 
     const plugin = await opencodeReview(makeFakeContext());
@@ -215,6 +277,7 @@ describe("plugin — review_changes max_diff_lines binding", () => {
       file_rules: [],
       parallel: true,
       intensity: "full",
+      profile: "default",
     });
 
     const plugin = await opencodeReview(makeFakeContext());
@@ -233,6 +296,61 @@ describe("plugin — review_changes max_diff_lines binding", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Session ID extraction (Phase B1)
+// ---------------------------------------------------------------------------
+
+describe("extractSessionId", () => {
+  it("returns sessionID from properties.sessionID", () => {
+    const event = {
+      type: "session.idle",
+      properties: { sessionID: "sess-abc123", id: "legacy-id" },
+      id: "top-level-id",
+    } as SessionIdleEvent;
+    const result = extractSessionId(event);
+    expect(result).toBe("sess-abc123");
+  });
+
+  it("falls back to properties.id when sessionID is absent", () => {
+    const event = {
+      type: "session.idle",
+      properties: { id: "legacy-id" },
+      id: "top-level-id",
+    } as SessionIdleEvent;
+    const result = extractSessionId(event);
+    expect(result).toBe("legacy-id");
+  });
+
+  it("falls back to top-level id when properties is absent", () => {
+    const event = {
+      type: "session.idle",
+      id: "top-level-id",
+    } as SessionIdleEvent;
+    const result = extractSessionId(event);
+    expect(result).toBe("top-level-id");
+  });
+
+  it("returns undefined when no ID is present", () => {
+    const event = {
+      type: "session.idle",
+      properties: {},
+    } as SessionIdleEvent;
+    const result = extractSessionId(event);
+    expect(result).toBeUndefined();
+  });
+});
+
+interface SessionIdleEvent {
+  type: string;
+  properties?: { sessionID?: string; id?: string };
+  id?: string;
+}
+
+// ---------------------------------------------------------------------------
+// The extractSessionId helper is tested above; this section keeps the existing
+// malformed-event cooldown guard tests.
+// ---------------------------------------------------------------------------
+
 describe("session.idle malformed event cooldown guard", () => {
   it("a malformed idle event does not consume cooldown (next valid event still triggers)", async () => {
     vi.mocked(loadConfig).mockResolvedValueOnce({
@@ -244,6 +362,7 @@ describe("session.idle malformed event cooldown guard", () => {
       file_rules: [],
       parallel: true,
       intensity: "full",
+      profile: "default",
     });
 
     const promptAsync = vi.fn().mockResolvedValue({});

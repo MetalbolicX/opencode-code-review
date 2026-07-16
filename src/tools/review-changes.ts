@@ -78,7 +78,11 @@ export const createReviewChangesTool = (maxDiffLines: number): ToolDefinition =>
           );
           break;
         case "branch": {
-          const defaultBranch = await getDefaultBranch($);
+          const defaultBranchResult = await getDefaultBranch($);
+          if ("error" in defaultBranchResult) {
+            return `[Error] ${defaultBranchResult.error}`;
+          }
+          const defaultBranch = defaultBranchResult.branch;
           if (!SAFE_BRANCH_REGEX.test(defaultBranch)) {
             return `[Error] Unsafe default branch name: "${defaultBranch}"`;
           }
@@ -134,20 +138,31 @@ const runCommand = async (
   }
 };
 
-const getDefaultBranch = async ($: ShellRunner): Promise<string> => {
+const getDefaultBranch = async (
+  $: ShellRunner,
+): Promise<{ branch: string } | { error: string }> => {
   try {
     const result = await $`git symbolic-ref refs/remotes/origin/HEAD`.quiet();
-    const raw = (result.ok ? result.stdout : "").trim();
+    if (!result.ok) {
+      return {
+        error: `Could not determine default branch: ${result.error}`,
+      };
+    }
+    const raw = result.stdout.trim();
     const prefix = "refs/remotes/origin/";
     if (raw.startsWith(prefix)) {
-      return raw.slice(prefix.length);
+      return { branch: raw.slice(prefix.length) };
     }
     if (raw.startsWith("refs/heads/")) {
-      return raw.slice("refs/heads/".length);
+      return { branch: raw.slice("refs/heads/".length) };
     }
-    return raw;
-  } catch {
-    // fallback
+    if (!raw) {
+      return { error: "Could not determine default branch: empty response" };
+    }
+    return { branch: raw };
+  } catch (e) {
+    return {
+      error: `Could not determine default branch: ${(e as Error).message}`,
+    };
   }
-  return "main";
 };

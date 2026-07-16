@@ -11,7 +11,11 @@ import {
 
 export type ReviewIntensity = "lite" | "full" | "ultra";
 
+export type ReviewProfile = "default" | "thermo-nuclear";
+
 const VALID_INTENSITIES: readonly ReviewIntensity[] = ["lite", "full", "ultra"];
+
+const VALID_PROFILES: readonly ReviewProfile[] = ["default", "thermo-nuclear"];
 
 export interface ReviewConfig {
   language: string;
@@ -35,6 +39,12 @@ export interface ReviewConfig {
    * (including missing) is normalised to `"full"` by `loadConfig`.
    */
   intensity: ReviewIntensity;
+  /**
+   * Review profile that determines the rubric and rules applied.
+   * Anything other than `"default"` | `"thermo-nuclear"`
+   * (including missing) is normalised to `"default"` by `loadConfig`.
+   */
+  profile: ReviewProfile;
 }
 
 const DEFAULT_CONFIG: ReviewConfig = {
@@ -55,6 +65,7 @@ const DEFAULT_CONFIG: ReviewConfig = {
   file_rules: [],
   parallel: true,
   intensity: "full",
+  profile: "default",
 };
 
 const CONFIG_FILENAME = "review.json";
@@ -132,7 +143,8 @@ export const loadConfig = async (projectDir: string): Promise<ReviewConfig> => {
       ...(projectCfg?.trigger ?? {}),
     },
     file_rules: fileRules,
-    intensity: normalizeIntensity((projectCfg ?? globalCfg ?? {}).intensity),
+    intensity: normalizeIntensity((projectCfg ?? globalCfg)?.intensity),
+    profile: normalizeProfile((projectCfg ?? globalCfg)?.profile),
   };
 };
 
@@ -148,4 +160,18 @@ const normalizeIntensity = (raw: unknown): ReviewIntensity => {
     }
   }
   return "full";
+};
+
+/**
+ * Coerce a raw `profile` value from config (or `undefined`) into a valid
+ * `ReviewProfile`. Anything outside the allowed set falls back to `"default"`,
+ * which is the documented default and keeps the loader strictly additive.
+ */
+const normalizeProfile = (raw: unknown): ReviewProfile => {
+  if (typeof raw === "string") {
+    if ((VALID_PROFILES as readonly string[]).includes(raw)) {
+      return raw as ReviewProfile;
+    }
+  }
+  return "default";
 };
