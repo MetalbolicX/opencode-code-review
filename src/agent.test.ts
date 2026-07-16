@@ -16,6 +16,7 @@ const baseConfig: ReviewConfig = {
   file_rules: [],
   parallel: true,
   intensity: "full",
+  profile: "default",
 };
 
 const rule = (body: string, dimensions: string[]): RuleFile => ({
@@ -436,5 +437,189 @@ describe("fixer prompt — excludes simplification findings from auto-fix (Phase
     expect(prompt).toMatch(/never\s+(auto[-\s]?fix|fix)/i);
     // Belt-and-suspenders: "do not auto-fix" is also an acceptable phrasing.
     expect(prompt).toMatch(/(do\s+not\s+(auto[-\s]?fix|fix))/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixer thermo exclusion (Phase B1 / PR #1)
+//
+// Contract:
+//   default profile → fixer prompt does NOT contain [thermo] exclusion
+//   thermo-nuclear   → fixer prompt contains [thermo] exclusion wording
+// ---------------------------------------------------------------------------
+
+describe("fixer prompt — thermo exclusion (Phase B1)", () => {
+  it("does NOT contain [thermo] exclusion when profile is 'default' (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      profile: "default" as const,
+    };
+    const prompt = buildFixerPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+    expect(prompt).not.toContain("thermo");
+  });
+
+  it("does NOT contain [thermo] exclusion when profile is 'default' (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      profile: "default" as const,
+    };
+    const prompt = buildFixerPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+    expect(prompt).not.toContain("thermo");
+  });
+
+  it("contains [thermo] exclusion when profile is 'thermo-nuclear' (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildFixerPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("contains [thermo] exclusion when profile is 'thermo-nuclear' (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildFixerPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("still contains simplification exclusion alongside thermo exclusion (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildFixerPrompt(config);
+    // Both exclusions must coexist
+    for (const tag of ["delete", "yagni", "shrink", "stdlib", "native"]) {
+      expect(prompt).toContain(tag);
+    }
+    expect(prompt).toContain("[thermo]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent prompts — thermo-nuclear profile (Phase C / PR #2)
+// ---------------------------------------------------------------------------
+
+describe("buildAgentPrompt — thermo-nuclear profile (Phase C)", () => {
+  it("[thermo] marker appears in single-prompt when profile is thermo-nuclear (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      parallel: false,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("[thermo] marker appears in single-prompt when profile is thermo-nuclear (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      parallel: false,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("[thermo] marker is absent from single-prompt when profile is default (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      parallel: false,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+  });
+
+  it("[thermo] marker is absent from single-prompt when profile is default (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      parallel: false,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+  });
+
+  it("[thermo] marker appears in parallel-prompt when profile is thermo-nuclear (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      parallel: true,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("[thermo] marker appears in parallel-prompt when profile is thermo-nuclear (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      parallel: true,
+      profile: "thermo-nuclear" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).toContain("[thermo]");
+  });
+
+  it("[thermo] marker is absent from parallel-prompt when profile is default (en)", () => {
+    const config = {
+      ...baseConfig,
+      language: "en" as const,
+      parallel: true,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+  });
+
+  it("[thermo] marker is absent from parallel-prompt when profile is default (zh)", () => {
+    const config = {
+      ...baseConfig,
+      language: "zh" as const,
+      parallel: true,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+  });
+
+  it("default-profile single-prompt has zero thermo content", () => {
+    const config = {
+      ...baseConfig,
+      parallel: false,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+    expect(prompt).not.toContain("thermo-nuclear");
+    expect(prompt).not.toContain("Thermo");
+  });
+
+  it("default-profile parallel-prompt has zero thermo content", () => {
+    const config = {
+      ...baseConfig,
+      parallel: true,
+      profile: "default" as const,
+    };
+    const prompt = buildAgentPrompt(config);
+    expect(prompt).not.toContain("[thermo]");
+    expect(prompt).not.toContain("thermo-nuclear");
+    expect(prompt).not.toContain("Thermo");
   });
 });

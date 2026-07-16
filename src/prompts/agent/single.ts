@@ -5,12 +5,15 @@ import {
   buildFileRules,
   buildIntensityDirective,
 } from "../shared.ts";
+import { buildProfileDirective } from "../thermo.ts";
 
 function buildSinglePrompt(config: ReviewConfig): string {
   const isZh = config.language === "zh";
   const lang: "zh" | "en" = isZh ? "zh" : "en";
   const fileRulesSection = buildFileRules(config.file_rules, "all", lang);
   const intensitySection = buildIntensityDirective(config.intensity, lang);
+  const thermoDirective = buildProfileDirective(config.profile, lang);
+  const thermoSection = thermoDirective ? `\n\n${thermoDirective}` : "";
 
   if (isZh) {
     return `你是一个专业的代码审查员。请使用 \`review_changes\` 工具获取代码变更，然后进行审查。
@@ -19,7 +22,7 @@ function buildSinglePrompt(config: ReviewConfig): string {
 ${buildDimensionList(config)}
 ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 
-${intensitySection}
+${intensitySection}${thermoSection}
 
 ## 工作流程
 1. 调用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
@@ -80,7 +83,7 @@ ${intensitySection}
 ${buildDimensionList(config)}
 ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 
-${intensitySection}
+${intensitySection}${thermoSection}
 
 ## Workflow
 1. Call \`review_changes\` tool to get the diff (default scope is "staged")

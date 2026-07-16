@@ -5,6 +5,7 @@ import {
   buildIntensityDirective,
   formatTagList,
 } from "../prompts/shared.ts";
+import { buildProfileDirective } from "../prompts/thermo.ts";
 
 export interface DimensionPrompt {
   name: string;
@@ -347,12 +348,20 @@ const buildDimensionPrompt = (
     dimension === "code-quality"
       ? `\n\n${buildIntensityDirective(config.intensity, lang)}`
       : "";
+  // Thermo rubric is injected only into the code-quality dimension and only
+  // when the profile is "thermo-nuclear".  buildProfileDirective returns ""
+  // for all other combinations, so no separator is needed in those cases.
+  const thermoSection =
+    dimension === "code-quality"
+      ? buildProfileDirective(config.profile, lang)
+      : "";
+  const thermoSeparator = thermoSection ? "\n\n" : "";
   // Custom rules land AFTER file-rule bodies so the dimension-scoped and
   // general markdown guidance stays the primary instruction, with the
   // configured `custom_rules` bullets appended as a short supplemental list.
   // `buildCustomRules` keeps its mutable `string[]` signature, so we spread
   // the readonly input to satisfy it without widening the helper's contract.
-  return `${content[lang]}${intensitySection}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}${buildCustomRules(customRules ? [...customRules] : [])}`;
+  return `${content[lang]}${intensitySection}${thermoSeparator}${thermoSection}\n\n${OUTPUT_FORMAT[lang]}${renderRulesSection(dimension, rules, lang)}${buildCustomRules(customRules ? [...customRules] : [])}`;
 };
 
 /**

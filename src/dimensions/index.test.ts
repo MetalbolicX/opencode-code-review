@@ -32,6 +32,7 @@ const baseConfig: ReviewConfig = {
   file_rules: [],
   parallel: true,
   intensity: "full",
+  profile: "default",
 };
 
 const rule = (
@@ -486,6 +487,55 @@ describe("getDimensionPrompts — code-quality simplification lens", () => {
       // Severity model must remain — at least one of 🔴 / 🟡 / ✅ should
       // still appear in the output-format section.
       expect(prompt).toMatch(/🔴|🟡|✅/);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Thermo-nuclear profile injection (Phase C / PR #2)
+// ---------------------------------------------------------------------------
+
+describe("getDimensionPrompts — thermo-nuclear profile (Phase C)", () => {
+  for (const lang of ["zh", "en"] as const) {
+    const codeQualityConfig = {
+      ...baseConfig,
+      language: lang,
+      dimensions: ["code-quality"],
+    };
+
+    it(`[thermo] marker appears in code-quality when profile is thermo-nuclear (${lang})`, () => {
+      const thermoCfg = {
+        ...codeQualityConfig,
+        profile: "thermo-nuclear" as const,
+      };
+      const prompts = getDimensionPrompts(thermoCfg);
+      expect(prompts[0]?.prompt).toContain("[thermo]");
+    });
+
+    it(`[thermo] marker is absent from code-quality when profile is default (${lang})`, () => {
+      const defaultCfg = { ...codeQualityConfig, profile: "default" as const };
+      const prompts = getDimensionPrompts(defaultCfg);
+      expect(prompts[0]?.prompt).not.toContain("[thermo]");
+    });
+
+    it(`thermo rubric is absent from security dimension even when profile is thermo-nuclear (${lang})`, () => {
+      const thermoCfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["security"],
+        profile: "thermo-nuclear" as const,
+      };
+      const prompts = getDimensionPrompts(thermoCfg);
+      expect(prompts[0]?.prompt).not.toContain("[thermo]");
+    });
+
+    it(`code-quality prompt under default profile has zero thermo content (${lang})`, () => {
+      const defaultCfg = { ...codeQualityConfig, profile: "default" as const };
+      const prompts = getDimensionPrompts(defaultCfg);
+      const prompt = prompts[0]?.prompt ?? "";
+      expect(prompt).not.toContain("[thermo]");
+      expect(prompt).not.toContain("thermo-nuclear");
+      expect(prompt).not.toContain("Thermo");
     });
   }
 });

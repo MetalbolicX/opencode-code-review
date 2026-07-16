@@ -7,6 +7,7 @@ import {
   buildScopedRuleSummary,
 } from "../shared.ts";
 import { buildSinglePrompt } from "./single.ts";
+import { buildProfileDirective } from "../thermo.ts";
 
 const REPORT_FORMAT: Record<string, string> = {
   zh: `## 输出格式
@@ -85,6 +86,8 @@ const buildParallelPrompt = (config: ReviewConfig): string => {
   const scopedSummarySection = buildScopedRuleSummary(config.file_rules, lang);
   const customRulesSection = buildCustomRules(config.custom_rules);
   const intensitySection = buildIntensityDirective(config.intensity, lang);
+  const thermoDirective = buildProfileDirective(config.profile, lang);
+  const thermoSection = thermoDirective ? `\n\n${thermoDirective}` : "";
 
   if (lang === "zh") {
     return `你是一个代码审查调度器。你的任务是并行调度多个维度审查子代理，收集结果，并生成统一报告。
@@ -92,7 +95,7 @@ const buildParallelPrompt = (config: ReviewConfig): string => {
 ## 可用维度代理
 ${dimensionList}
 
-${intensitySection}
+${intensitySection}${thermoSection}
 
 ## 工作流程
 1. 使用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
@@ -116,7 +119,7 @@ ${AUTO_FIX_INSTRUCTION.zh}`;
 ## Available Dimension Agents
 ${dimensionList}
 
-${intensitySection}
+${intensitySection}${thermoSection}
 
 ## Workflow
 1. Use the \`review_changes\` tool to get the diff (default scope is "staged")

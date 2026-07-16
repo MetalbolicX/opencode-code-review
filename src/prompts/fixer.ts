@@ -20,6 +20,20 @@ Do NOT auto-fix any finding classified as a simplification via a \`[tag]\` prefi
 These five tags require human judgment — auto-fixing them risks changing behavior, weakening validation, or shifting semantics.`,
 };
 
+// Thermo exclusion: only active when profile is "thermo-nuclear"
+const THERMO_EXCLUSION: Record<string, string> = {
+  zh: `## 热核类自动修复保护（防御性边界）
+
+不要自动修复任何标记为 \`[thermo]\` 的发现。即使上游审查将热核类问题转交给 fixer，你也必须将其排除在自动修复之外。
+
+热核类发现涉及架构与代码品味判断，修复它们可能改变行为、削弱校验或语义；必须由人工在审查中决策。`,
+  en: `## Thermo auto-fix protection (defense-in-depth)
+
+Do NOT auto-fix any finding tagged \`[thermo]\`. Even if an upstream review forwards a thermo finding to the fixer, you must never auto-fix it — these exclusions take priority over any other auto-fix rule.
+
+Thermo findings require human judgment — auto-fixing them risks changing behavior, weakening validation, or shifting semantics.`,
+};
+
 export const buildFixerPrompt = (config: ReviewConfig): string => {
   const isZh = config.language === "zh";
   // The fixer only needs general rules; dimension-scoped rules belong in
@@ -31,9 +45,21 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
     lang,
   );
   const exclusionSection = SIMPLIFICATION_EXCLUSION[lang];
+  const thermoExclusionSection =
+    config.profile === "thermo-nuclear" ? THERMO_EXCLUSION[lang] : "";
   const exclusionInline = formatTagListSlash();
 
   if (isZh) {
+    const thermoOutputFormat = thermoExclusionSection
+      ? `
+
+如果问题属于热核类发现（标记为 [thermo]），输出：
+
+\`\`\`
+⚠️ [file_path:line_number] 热核类发现，不自动修复：原因说明
+\`\`\``
+      : "";
+
     return `你是一个代码修复代理。你会收到审查发现的关键问题列表，你的任务是修复这些问题。
 
 ## 工作流程
@@ -49,6 +75,7 @@ export const buildFixerPrompt = (config: ReviewConfig): string => {
 - 每个修复完成后简要说明做了什么
 
 ${exclusionSection}
+${thermoExclusionSection}
 
 ## 输出格式
 对每个修复：
@@ -67,9 +94,19 @@ ${exclusionSection}
 
 \`\`\`
 ⚠️ [file_path:line_number] 精简类发现，不自动修复：原因说明
-\`\`\`
+\`\`\`${thermoOutputFormat}
 ${generalRulesSection}`;
   }
+
+  const thermoOutputFormat = thermoExclusionSection
+    ? `
+
+If the issue is a thermo finding (tagged [thermo]), output:
+
+\`\`\`
+⚠️ [file_path:line_number] Thermo finding, do not auto-fix: reason
+\`\`\``
+    : "";
 
   return `You are a code fixer agent. You receive a list of critical issues found during code review, and your task is to fix them.
 
@@ -86,6 +123,7 @@ ${generalRulesSection}`;
 - Briefly describe what was done after each fix
 
 ${exclusionSection}
+${thermoExclusionSection}
 
 ## Output Format
 For each fix:
@@ -104,6 +142,6 @@ If the issue is a simplification finding (tags: ${exclusionInline}), output:
 
 \`\`\`
 ⚠️ [file_path:line_number] Simplification finding, do not auto-fix: reason
-\`\`\`
+\`\`\`${thermoOutputFormat}
 ${generalRulesSection}`;
 };
