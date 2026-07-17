@@ -5,6 +5,9 @@ export default defineConfig({
     "plugin": "src/index.ts",
     "cli": "src/cli/main.ts",
   },
+  // Keep jsonc-parser external so the published package resolves the real
+  // dependency at runtime instead of inlining rolldown's CommonJS helper chunk.
+  external: ["jsonc-parser"],
   output: {
     dir: "dist",
     format: "esm",
