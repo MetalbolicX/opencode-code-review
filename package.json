@@ -4,6 +4,7 @@
   "description": "A review agent plugin for OpenCode CLI - structured code review with configurable dimensions",
   "type": "module",
   "main": "dist/plugin.mjs",
+  "oc-plugin": ["server"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MetalbolicX/opencode-code-review.git"
@@ -40,5 +41,8 @@
     "rolldown": "^1.1.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
   }
 }

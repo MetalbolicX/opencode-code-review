@@ -3,7 +3,8 @@
 //
 // All disk I/O runs through an injected in-memory `CliFs` so we stay
 // deterministic and exercise every code path. Env vars (`OPENCODE_CONFIG_DIR`,
-// `HOME`) are saved/restored around every test that touches path resolution.
+// `HOME`, `XDG_CONFIG_HOME`) are saved/restored around every test that touches
+// path resolution.
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,15 +23,16 @@ import {
   resolveConfigPath,
   rotateBackups,
   writeAtomically,
+  writeJsoncAtomic,
 } from "./config.ts";
 
 // ---------------------------------------------------------------------------
-// In-memory CliFs adapter
+// In-memory CliFs adapter (extended with rmdirSync / canWrite)
 // ---------------------------------------------------------------------------
 
 const createMemFs = (
   initial: Record<string, string> = {},
-): CliFs & { __files: Map<string, string> } => {
+): CliFs & { __files: Map<string, string>; __dirs: Set<string> } => {
   const files = new Map<string, string>(Object.entries(initial));
   const dirs = new Set<string>();
 
@@ -43,33 +45,34 @@ const createMemFs = (
     }
   };
 
-  const fs: CliFs & { __files: Map<string, string> } = {
+  const fs = {
     __files: files,
-    readFileSync: (p) => {
+    __dirs: dirs,
+    readFileSync: (p: string) => {
       if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
       return files.get(p) as string;
     },
-    writeFileSync: (p, c) => {
+    writeFileSync: (p: string, c: string) => {
       trackDir(p);
       files.set(p, c);
     },
-    renameSync: (from, to) => {
+    renameSync: (from: string, to: string) => {
       if (!files.has(from)) throw new Error(`ENOENT: ${from}`);
       trackDir(to);
       files.set(to, files.get(from) as string);
       files.delete(from);
     },
-    copyFileSync: (from, to) => {
+    copyFileSync: (from: string, to: string) => {
       if (!files.has(from)) throw new Error(`ENOENT: ${from}`);
       trackDir(to);
       files.set(to, files.get(from) as string);
     },
-    unlinkSync: (p) => {
+    unlinkSync: (p: string) => {
       if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
       files.delete(p);
     },
-    mkdirSync: (p) => dirs.add(p),
-    readdirSync: (p) => {
+    mkdirSync: (p: string) => dirs.add(p),
+    readdirSync: (p: string) => {
       const prefix = p.endsWith("/") ? p : `${p}/`;
       const seen = new Set<string>();
       for (const k of files.keys()) {
@@ -81,7 +84,14 @@ const createMemFs = (
       }
       return Array.from(seen).sort();
     },
-    existsSync: (p) => files.has(p) || dirs.has(p),
+    existsSync: (p: string) => files.has(p) || dirs.has(p),
+    rmdirSync: (p: string) => {
+      dirs.delete(p);
+      for (const k of [...files.keys()]) {
+        if (k.startsWith(p)) files.delete(k);
+      }
+    },
+    canWrite: (_p: string) => true,
   };
   return fs;
 };
@@ -95,6 +105,7 @@ const saveEnv = (): void => {
   savedEnv = {
     HOME: process.env.HOME,
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   };
 };
 const restoreEnv = (): void => {
@@ -105,7 +116,7 @@ const restoreEnv = (): void => {
 };
 
 // ---------------------------------------------------------------------------
-// parseJsonc
+// parseJsonc — malformed JSONC must throw, not silently return {}
 // ---------------------------------------------------------------------------
 
 describe("parseJsonc", () => {
@@ -139,7 +150,8 @@ describe("parseJsonc", () => {
     });
   });
 
-  it("throws on malformed JSON", () => {
+  // Task 1.1: Malformed JSONC must throw — no silent {} fallback
+  it("throws on malformed JSON (not silent {})", () => {
     expect(() => parseJsonc("{not valid")).toThrow();
     expect(() => parseJsonc('{"unterminated":')).toThrow();
   });
@@ -309,6 +321,93 @@ describe("writeAtomically", () => {
 });
 
 // ---------------------------------------------------------------------------
+// writeJsoncAtomic — JSONC comment + trailing-comma preservation
+// Task 1.1: Comments and trailing commas survive targeted edits
+// ---------------------------------------------------------------------------
+
+describe("writeJsoncAtomic", () => {
+  // Task 1.1: Backup is created BEFORE atomic write (ordering invariant)
+  it("backup is created BEFORE the atomic write", () => {
+    const target = "/home/me/.config/opencode/opencode.json";
+    const original = '{"plugin":["other"]}';
+    const fs = createMemFs({ [target]: original });
+
+    const writeOrder: string[] = [];
+    const origCopy = fs.copyFileSync.bind(fs);
+    const origWrite = fs.writeFileSync.bind(fs);
+
+    fs.copyFileSync = (...args: Parameters<typeof origCopy>) => {
+      writeOrder.push("backup");
+      return origCopy(...args);
+    };
+    fs.writeFileSync = (...args: Parameters<typeof origWrite>) => {
+      writeOrder.push("write");
+      return origWrite(...args);
+    };
+
+    writeJsoncAtomic(
+      target,
+      { plugin: ["other", PLUGIN_NAME] },
+      original,
+      fs,
+    );
+
+    const backupIdx = writeOrder.indexOf("backup");
+    const writeIdx = writeOrder.indexOf("write");
+    expect(backupIdx).toBeLessThan(writeIdx);
+  });
+
+  it("preserves JSONC comments on targeted plugin array edit", () => {
+    const target = "/home/me/.config/opencode/opencode.json";
+    const original = `{
+  // installed plugin
+  "plugin": ["other"],
+  "otherField": true
+}`;
+    const fs = createMemFs();
+    writeJsoncAtomic(
+      target,
+      { plugin: ["other", PLUGIN_NAME] },
+      original,
+      fs,
+    );
+    const result = fs.__files.get(target) as string;
+    // Comment must be preserved
+    expect(result).toContain("// installed plugin");
+    // New plugin entry must be present
+    expect(result).toContain(PLUGIN_NAME);
+  });
+
+  it("preserves trailing commas on targeted edit", () => {
+    const target = "/home/me/.config/opencode/opencode.json";
+    const original = `{"plugin":["other"],}`;
+    const fs = createMemFs();
+    writeJsoncAtomic(
+      target,
+      { plugin: ["other", PLUGIN_NAME] },
+      original,
+      fs,
+    );
+    const result = fs.__files.get(target) as string;
+    // jsonc-parser preserves the trailing comma from the original; the result
+    // is valid JSONC even though JSON.parse would throw on the trailing comma.
+    // Use parseJsonc to validate (which strips trailing commas correctly).
+    expect(parseJsonc(result)).toEqual({ plugin: ["other", PLUGIN_NAME] });
+  });
+
+  it("removes the entire plugin key when set to undefined", () => {
+    const target = "/home/me/.config/opencode/opencode.json";
+    const original = `{"plugin":["${PLUGIN_NAME}","other"]}`;
+    const fs = createMemFs();
+    writeJsoncAtomic(target, { plugin: undefined }, original, fs);
+    const result = fs.__files.get(target) as string;
+    const parsed = JSON.parse(result);
+    // plugin: undefined → key is removed entirely
+    expect(parsed.plugin).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // resolveConfigPath
 // ---------------------------------------------------------------------------
 
@@ -349,6 +448,7 @@ describe("resolveConfigPath", () => {
 
   it("returns default .json path with existed=false when nothing exists", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = "/home/me";
     const r = resolveConfigPath(createMemFs());
     expect(r.existed).toBe(false);
@@ -356,6 +456,7 @@ describe("resolveConfigPath", () => {
   });
 
   it("ignores empty $OPENCODE_CONFIG_DIR", () => {
+    delete process.env.XDG_CONFIG_HOME;
     process.env.OPENCODE_CONFIG_DIR = "   ";
     process.env.HOME = "/home/me";
     const fs = createMemFs({ "/home/me/.config/opencode/opencode.json": "{}" });
@@ -369,16 +470,42 @@ describe("resolveConfigDir (env precedence)", () => {
   beforeEach(saveEnv);
   afterEach(restoreEnv);
 
+  // Task 1.1: XDG_CONFIG_HOME precedence in resolveConfigDir
   it("uses $OPENCODE_CONFIG_DIR when set", () => {
     process.env.OPENCODE_CONFIG_DIR = "/etc/ocr";
     delete process.env.HOME;
+    delete process.env.XDG_CONFIG_HOME;
     expect(resolveConfigDir()).toBe("/etc/ocr");
   });
 
-  it("falls back to $HOME/.config/opencode", () => {
+  it("uses $XDG_CONFIG_HOME/opencode when set (overrides $HOME)", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
     process.env.HOME = "/home/me";
+    process.env.XDG_CONFIG_HOME = "/xdg/config";
+    expect(resolveConfigDir()).toBe("/xdg/config/opencode");
+  });
+
+  it("falls back to $HOME/.config/opencode when XDG_CONFIG_HOME is unset", () => {
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.HOME = "/home/me";
+    delete process.env.XDG_CONFIG_HOME;
     expect(resolveConfigDir()).toBe("/home/me/.config/opencode");
+  });
+
+  it("uses homedir() fallback when neither OPENCODE_CONFIG_DIR nor HOME is set", () => {
+    delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.HOME;
+    delete process.env.XDG_CONFIG_HOME;
+    const result = resolveConfigDir();
+    // Should fall back to homedir()/.config/opencode
+    expect(result).toMatch(/\.config\/opencode$/);
+  });
+
+  it("OPENCODE_CONFIG_DIR wins over XDG_CONFIG_HOME", () => {
+    process.env.OPENCODE_CONFIG_DIR = "/etc/ocr";
+    process.env.XDG_CONFIG_HOME = "/xdg/config";
+    delete process.env.HOME;
+    expect(resolveConfigDir()).toBe("/etc/ocr");
   });
 });
 
@@ -392,6 +519,7 @@ describe("loadGlobalConfig", () => {
 
   it("returns config={} and existed=false when file is missing", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = "/home/me";
     const r = loadGlobalConfig(createMemFs());
     expect(r).toEqual({
@@ -403,6 +531,7 @@ describe("loadGlobalConfig", () => {
 
   it("parses existing .json file", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = "/home/me";
     const fs = createMemFs({
       "/home/me/.config/opencode/opencode.json": '{"plugin":["a"]}',
@@ -414,6 +543,7 @@ describe("loadGlobalConfig", () => {
 
   it("strips JSONC comments on read", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = "/home/me";
     const fs = createMemFs({
       "/home/me/.config/opencode/opencode.jsonc": `{ // hi\n"plugin": ["a",],\n}`,
@@ -424,6 +554,7 @@ describe("loadGlobalConfig", () => {
 
   it("returns parseError when existing file is malformed", () => {
     delete process.env.OPENCODE_CONFIG_DIR;
+    delete process.env.XDG_CONFIG_HOME;
     process.env.HOME = "/home/me";
     const fs = createMemFs({
       "/home/me/.config/opencode/opencode.json": "{broken",

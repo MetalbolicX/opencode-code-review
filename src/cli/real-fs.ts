@@ -14,15 +14,18 @@
 // ---------------------------------------------------------------------------
 
 import {
+  accessSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { constants } from "node:fs";
 import type { CliFs } from "./config.ts";
 
 /**
@@ -48,4 +51,15 @@ export const createRealFs = (): CliFs => ({
   },
   readdirSync: (path) => readdirSync(path),
   existsSync: (path) => existsSync(path),
+  rmdirSync: (path) => {
+    rmdirSync(path);
+  },
+  canWrite: (path) => {
+    try {
+      accessSync(path, constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 });

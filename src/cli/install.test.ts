@@ -63,6 +63,13 @@ const createMemFs = (
       return Array.from(seen).sort();
     },
     existsSync: (p) => files.has(p) || dirs.has(p),
+    rmdirSync: (p) => {
+      dirs.delete(p);
+      for (const k of [...files.keys()]) {
+        if (k.startsWith(p)) files.delete(k);
+      }
+    },
+    canWrite: (_p) => true,
   };
   return fs;
 };
@@ -74,8 +81,10 @@ beforeEach(() => {
   savedEnv = {
     HOME: process.env.HOME,
     OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
   };
   delete process.env.OPENCODE_CONFIG_DIR;
+  delete process.env.XDG_CONFIG_HOME;
   process.env.HOME = "/home/test";
   vi.spyOn(console, "log").mockImplementation(() => {});
 });

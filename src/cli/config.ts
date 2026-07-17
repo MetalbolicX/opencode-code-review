@@ -20,6 +20,11 @@
 
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import {
+  applyEdits,
+  modify,
+  type Edit,
+} from "jsonc-parser";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -53,6 +58,10 @@ export interface CliFs {
   mkdirSync(path: string, opts?: { recursive?: boolean }): void;
   readdirSync(path: string): string[];
   existsSync(path: string): boolean;
+  /** Remove a directory (must be empty on real fs; recursive in tests). */
+  rmdirSync(path: string): void;
+  /** True when the path (or its parent directory) is writable. */
+  canWrite(path: string): boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,8 +79,12 @@ export interface ResolvedConfigPath {
 
 /**
  * Resolve the parent directory that holds the global OpenCode config.
- * `$OPENCODE_CONFIG_DIR` wins; otherwise we fall back to
- * `$HOME/.config/opencode` (or `os.homedir()` as a last-resort).
+ *
+ * Precedence (per spec — "XDG Config-Path Precedence"):
+ *   1. `$OPENCODE_CONFIG_DIR` — explicit override, always wins.
+ *   2. `$XDG_CONFIG_HOME/opencode` — XDG base, if set.
+ *   3. `$HOME/.config/opencode` — POSIX default.
+ *   4. `homedir()/.config/opencode` — last-resort fallback.
  *
  * Exposed separately so tests and the rotation helper can reuse it
  * without re-deriving the precedence rules.
@@ -82,6 +95,10 @@ export const resolveConfigDir = (
   const explicit = env.OPENCODE_CONFIG_DIR;
   if (typeof explicit === "string" && explicit.trim().length > 0) {
     return explicit;
+  }
+  const xdg = env.XDG_CONFIG_HOME;
+  if (typeof xdg === "string" && xdg.trim().length > 0) {
+    return join(xdg, OPENCODE_CONFIG_SUBDIR);
   }
   const home = env.HOME;
   if (typeof home === "string" && home.trim().length > 0) {
@@ -411,6 +428,51 @@ const backupTimestamp = (date: Date): string => {
     `T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}` +
     `${pad(date.getUTCMilliseconds(), 3)}Z`
   );
+};
+
+// ---------------------------------------------------------------------------
+// JSONC-safe targeted write
+// ---------------------------------------------------------------------------
+
+/**
+ * Write `config` to `targetPath` preserving JSONC comments and formatting.
+ *
+ * Uses `jsonc-parser` `modify` + `applyEdits` with per-key targeted edits.
+ * For each entry in `config`, we call `modify(originalText, [key], value)`;
+ * passing `undefined` as a value removes that key. Comments and trailing
+ * commas in unchanged regions are never touched. After a non-empty edit
+ * result, calls `backupIfWritable` and `writeAtomically` in that order
+ * (backup before write — ordering invariant for crash safety).
+ *
+ * @param targetPath   - Absolute config file path.
+ * @param config       - The new parsed config object to write.
+ * @param originalText - The original raw file text (used to compute edits).
+ * @param fs           - Filesystem adapter.
+ */
+export const writeJsoncAtomic = (
+  targetPath: string,
+  config: Record<string, unknown>,
+  originalText: string,
+  fs: CliFs,
+): void => {
+  // Compute per-key targeted edits so comments outside changed keys survive.
+  const allEdits: Edit[] = [];
+  for (const [key, value] of Object.entries(config)) {
+    const edits = modify(originalText, [key], value, {});
+    allEdits.push(...edits);
+  }
+
+  if (allEdits.length === 0) {
+    // No changes needed — nothing to write.
+    return;
+  }
+
+  const editedText = applyEdits(originalText, allEdits);
+
+  // Backup BEFORE atomic write — ordering invariant for crash safety.
+  backupIfWritable(targetPath, fs);
+
+  writeAtomically(targetPath, editedText, fs);
 };
 
 // ---------------------------------------------------------------------------

@@ -58,6 +58,13 @@ const createMemFs = (
       return Array.from(seen).sort();
     },
     existsSync: (p) => files.has(p) || dirs.has(p),
+    rmdirSync: (p) => {
+      dirs.delete(p);
+      for (const k of [...files.keys()]) {
+        if (k.startsWith(p)) files.delete(k);
+      }
+    },
+    canWrite: (_p) => true,
   };
   return fs;
 };
