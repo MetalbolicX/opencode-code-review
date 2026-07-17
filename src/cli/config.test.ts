@@ -33,17 +33,27 @@ import {
 const createMemFs = (
   initial: Record<string, string> = {},
 ): CliFs & { __files: Map<string, string>; __dirs: Set<string> } => {
-  const files = new Map<string, string>(Object.entries(initial));
+  const files = new Map<string, string>();
   const dirs = new Set<string>();
 
   const trackDir = (p: string): void => {
     const parts = p.split("/");
     let acc = parts[0] === "" ? "/" : "";
     for (let i = parts[0] === "" ? 1 : 0; i < parts.length - 1; i++) {
-      acc = acc ? `${acc}/${parts[i]}` : (parts[i] as string);
+      if (acc === "/") {
+        acc = `/${parts[i] as string}`;
+      } else {
+        acc = acc ? `${acc}/${parts[i]}` : (parts[i] as string);
+      }
       if (acc) dirs.add(acc);
     }
   };
+
+  // Track all initial files to ensure parent dirs are recorded.
+  for (const [path, content] of Object.entries(initial)) {
+    trackDir(path);
+    files.set(path, content);
+  }
 
   const fs = {
     __files: files,

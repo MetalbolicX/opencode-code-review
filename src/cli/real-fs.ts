@@ -7,10 +7,9 @@
 //
 // The mapping is intentionally thin: only the methods `CliFs` exposes are
 // bound, and `readFileSync` returns a UTF-8 string (the only shape the CLI
-// helpers consume). Anything that does not belong on the `CliFs` interface
-// — for example, recursive directory removal in the uninstall purge path —
-// uses `node:fs` directly at the call site instead of widening the
-// abstraction.
+// helpers consume). The `rmdirSync` implementation uses `node:fs.rmSync`
+// with `recursive: true` so it can handle non-empty directories during
+// purge operations.
 // ---------------------------------------------------------------------------
 
 import {
@@ -21,7 +20,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  rmdirSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -52,7 +51,7 @@ export const createRealFs = (): CliFs => ({
   readdirSync: (path) => readdirSync(path),
   existsSync: (path) => existsSync(path),
   rmdirSync: (path) => {
-    rmdirSync(path);
+    rmSync(path, { recursive: true, force: true });
   },
   canWrite: (path) => {
     try {

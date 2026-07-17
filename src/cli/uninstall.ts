@@ -8,11 +8,10 @@
 //
 // Like `install`, the function is side-effect-free beyond prints and disk
 // writes through `fs`. Tests inject an in-memory `CliFs` to exercise the
-// config-mutation path; the purge path uses `node:fs` directly because
-// `CliFs` deliberately does not expose recursive directory removal.
+// full path including purge — all deletion goes through `fs.rmdirSync` so
+// the mock can track calls, throw on specific paths, or verify ordering.
 // ---------------------------------------------------------------------------
 
-import { rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -63,17 +62,13 @@ export const pluginConfigPath = (
 ): string => join(homeRoot(env), ".config", PLUGIN_NAME);
 
 /**
- * Best-effort recursive delete. Returns the path on success or `null` when
- * the target was missing (we don't want to fail the whole command if the
- * user never ran `install` to create these dirs in the first place).
+ * Recursive delete via `fs.rmdirSync`. Returns the path on success.
+ * Throws if the directory cannot be removed so the failure is surfaced
+ * to the caller (not silently swallowed).
  */
-const purgeDir = (path: string): string | null => {
-  try {
-    rmSync(path, { recursive: true, force: true });
-    return path;
-  } catch {
-    return null;
-  }
+const purgeDir = (path: string, fs: CliFs): string => {
+  fs.rmdirSync(path);
+  return path;
 };
 
 export const runUninstall = (
@@ -96,30 +91,6 @@ export const runUninstall = (
   const removed = existing.filter(matchesReviewPlugin);
   const remaining = existing.filter((entry) => !matchesReviewPlugin(entry));
 
-  // Compute purge candidates up front so dry-run can report them too.
-  const purgeCandidates = opts.purge ? [cachePath(), pluginConfigPath()] : [];
-  const purged: string[] = [];
-  const plannedPurge: string[] = [];
-
-  if (opts.purge && opts.dryRun) {
-    plannedPurge.push(...purgeCandidates);
-  } else if (opts.purge) {
-    for (const p of purgeCandidates) {
-      const result = purgeDir(p);
-      if (result) purged.push(result);
-    }
-  }
-
-  // Nothing to remove from the config AND nothing to purge → true no-op.
-  if (
-    removed.length === 0 &&
-    purged.length === 0 &&
-    plannedPurge.length === 0
-  ) {
-    console.log(`✓ Not installed: ${PLUGIN_NAME} not found in ${loaded.path}`);
-    return { status: "noop", path: loaded.path, removed: [], purged: [] };
-  }
-
   // Build the post-uninstall config object.
   if (removed.length > 0) {
     if (remaining.length === 0) {
@@ -129,28 +100,48 @@ export const runUninstall = (
     }
   }
 
+  // Compute purge candidates up front so dry-run can report them too.
+  const purgeCandidates = opts.purge ? [cachePath(), pluginConfigPath()] : [];
+  const purged: string[] = [];
+
   if (opts.dryRun) {
     console.log(`[dry-run] Would write to ${loaded.path}:`);
     console.log(JSON.stringify(config, null, JSON_INDENT));
-    if (plannedPurge.length > 0) {
+    // Report planned purge targets even in dry-run (config is not written).
+    if (purgeCandidates.length > 0) {
       console.log(`[dry-run] Would purge:`);
-      for (const p of plannedPurge) console.log(`  ${p}`);
+      for (const p of purgeCandidates) console.log(`  ${p}`);
     }
     return {
       status: "planned",
       path: loaded.path,
       removed,
-      purged: plannedPurge,
+      purged: purgeCandidates,
     };
   }
 
-  // Only touch the config file when we actually changed something AND the
-  // file existed to begin with. A fresh install that never wrote the file
-  // shouldn't create it just to leave an empty config behind.
+  // Write the config BEFORE purge so a broken purge never leaves the config
+  // in a half-migrated state (threat-matrix write-before-purge ordering).
   let backup: string | null = null;
   if (removed.length > 0 && loaded.existed) {
     backup = backupIfWritable(loaded.path, fs);
     writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
+  }
+
+  if (opts.purge) {
+    for (const p of purgeCandidates) {
+      const result = purgeDir(p, fs);
+      if (result) purged.push(result);
+    }
+  }
+
+  // Nothing to remove from the config AND nothing to purge → true no-op.
+  if (
+    removed.length === 0 &&
+    purged.length === 0
+  ) {
+    console.log(`✓ Not installed: ${PLUGIN_NAME} not found in ${loaded.path}`);
+    return { status: "noop", path: loaded.path, removed: [], purged: [] };
   }
 
   console.log(`✓ Uninstalled ${PLUGIN_NAME}`);

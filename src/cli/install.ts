@@ -1,110 +1,78 @@
 // ---------------------------------------------------------------------------
 // src/cli/install.ts — `ocr install` command.
 //
-// Edits the global OpenCode config so `plugin` contains exactly one
-// `opencode-code-review[@version]` entry. The flow is idempotent: existing
-// review entries are filtered out before the new one is appended, and
-// re-running with the same version is a no-op. With `--dry-run` the
-// pipeline runs end-to-end but no bytes hit disk.
+// Delegates plugin registration to `opencode plugin <specifier> --global`
+// via an injectable `ProcessRunner` seam. No direct config editing.
 //
-// The function is pure of side effects beyond what it prints and writes
-// through `fs`. Tests can inject an in-memory `CliFs` to exercise every
-// branch deterministically.
+// The function is pure of side effects beyond what it prints. Tests inject
+// a fake `ProcessRunner` to exercise every branch deterministically.
+//
+// Task 2.2:
+//   - Async delegation only through ProcessRunner
+//   - No direct config write
+//   - InstallOptions: { version?, dryRun?, yes?, spawn? }
+//   - InstallResult: { status: 'wrote' | 'skipped', specifier: string }
+//   - Remove: config loading, normalizePlugin, dedupePlugins, backupIfWritable,
+//             writeAtomically, path/backup fields
 // ---------------------------------------------------------------------------
 
-import {
-  backupIfWritable,
-  buildSpecifier,
-  type CliFs,
-  dedupePlugins,
-  loadGlobalConfig,
-  matchesReviewPlugin,
-  normalizePlugin,
-  writeAtomically,
-} from "./config.ts";
-import { createRealFs } from "./real-fs.ts";
+import { buildSpecifier, PLUGIN_NAME } from "./config.ts";
+import { spawnOpencodePlugin, type ProcessRunner } from "./spawn.ts";
 
 export interface InstallOptions {
   /** Optional version pin (e.g. `"1.2.3"`, `"latest"`). Omit for bare specifier. */
   version?: string;
-  /** Plan the change and print it without writing. */
+  /** Plan the change and print it without writing or spawning. */
   dryRun?: boolean;
   /** Reserved for future confirmation prompts; accepted but unused for now. */
   yes?: boolean;
+  /** Injectable process runner (defaults to the real opencode spawn). */
+  spawn?: ProcessRunner;
 }
 
 export interface InstallResult {
   /** Outcome of the command. */
-  status: "wrote" | "planned" | "noop";
-  /** Resolved config path (existing or newly-targeted). */
-  path: string;
-  /** Specifier that was added (or would be added under `--dry-run`). */
+  status: "wrote" | "skipped";
+  /** Resolved specifier that was used (or would be used). */
   specifier: string;
-  /** Backup path created before the write, or `null` when no backup was needed. */
-  backup: string | null;
 }
 
-const JSON_INDENT = 2;
-
 /**
- * Run `ocr install` against the global OpenCode config.
+ * Run `ocr install` by delegating to `opencode plugin <specifier> --global`.
  *
- * Steps: load → normalize → dedupe (drops existing review entries) →
- * append new specifier → backup → atomic write. The backup is a
- * timestamped sibling of the config file; rotation to `BACKUP_LIMIT` is
- * handled inside `backupIfWritable`.
+ * Steps: build specifier → dry-run report → spawn opencode → propagate errors.
+ * The specifier is either the bare `opencode-code-review` (no version) or
+ * `opencode-code-review@<version>` when `--version` is given.
  */
-export const runInstall = (
+export const runInstall = async (
   opts: InstallOptions = {},
-  fs: CliFs = createRealFs(),
-): InstallResult => {
-  const specifier = buildSpecifier(opts.version);
-  const loaded = loadGlobalConfig(fs);
+): Promise<InstallResult> => {
+  // `--latest` means "install the latest version from npm" — opencode plugin
+  // without a version suffix delegates to npm resolution, so we pass bare specifier.
+  const isLatest = opts.version === "latest";
+  const specifier = isLatest ? PLUGIN_NAME : buildSpecifier(opts.version);
 
-  if (loaded.parseError) {
+  if (opts.dryRun) {
+    console.log(`[dry-run] Would run: opencode plugin ${specifier} --global`);
+    return { status: "skipped", specifier };
+  }
+
+  const spawnFn = opts.spawn ?? { run: spawnOpencodePlugin };
+  const result = await spawnFn.run("opencode", ["plugin", specifier, "--global"]);
+
+  if (result.missing) {
     throw new Error(
-      `Config file is malformed JSON — aborting to avoid data loss.\n` +
-        `  path:  ${loaded.path}\n` +
-        `  error: ${loaded.parseError}\n` +
-        `Fix the JSON error, or delete the file and re-run to create a fresh config.`,
+      `opencode: executable not found on PATH — is OpenCode installed?\n` +
+        `  hint: install from https://opencode.ai and ensure it is on your PATH`,
     );
   }
 
-  const config: Record<string, unknown> = { ...loaded.config };
-  const existing = normalizePlugin(config.plugin);
-
-  // Compute the post-install plugin list: keep non-review entries in their
-  // original order and append the requested specifier at the end. Comparing
-  // against `existing` is the canonical no-op check — if the post-install
-  // state equals what we already have, no write is needed.
-  const nonReview = existing.filter((entry) => !matchesReviewPlugin(entry));
-  const finalPlugins = [...nonReview, specifier];
-  const isNoop =
-    !opts.dryRun && JSON.stringify(finalPlugins) === JSON.stringify(existing);
-
-  if (isNoop) {
-    console.log(`✓ Already installed (${specifier}) at ${loaded.path}`);
-    return { status: "noop", path: loaded.path, specifier, backup: null };
+  if (result.status !== 0) {
+    throw new Error(
+      `opencode plugin registration failed (exit ${result.status}):\n` +
+        `  ${result.stderr.trim()}`,
+    );
   }
 
-  // Dedupe non-review entries by base name (keeps last occurrence) so a
-  // hand-edited config with duplicate plugins is cleaned up on write.
-  // The specifier itself is appended fresh after dedup.
-  const dedupedNonReview = dedupePlugins(nonReview);
-  config.plugin = [...dedupedNonReview, specifier];
-
-  if (opts.dryRun) {
-    console.log(`[dry-run] Would write to ${loaded.path}:`);
-    console.log(JSON.stringify(config, null, JSON_INDENT));
-    return { status: "planned", path: loaded.path, specifier, backup: null };
-  }
-
-  const backup = backupIfWritable(loaded.path, fs);
-  writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
-
-  console.log(`✓ Installed ${specifier}`);
-  console.log(`  config: ${loaded.path}`);
-  if (backup) console.log(`  backup: ${backup}`);
-
-  return { status: "wrote", path: loaded.path, specifier, backup };
+  return { status: "wrote", specifier };
 };
