@@ -227,11 +227,12 @@ describe("runUninstall", () => {
     };
     const r = runUninstall({ purge: true }, fs);
     expect(r.status).toBe("wrote");
-    // Only opencode-code-review* entries should be purged.
+    // Cache entries matching opencode-code-review* prefix (via resolveCachePaths).
     const purgedPrefixes = r.purged.filter((p) =>
       p.includes("opencode-code-review"),
     );
-    expect(purgedPrefixes).toHaveLength(2);
+    // 2 cache paths + pluginConfigPath all contain "opencode-code-review" → 3 total.
+    expect(purgedPrefixes).toHaveLength(3);
     // unrelated "other-plugin" must NOT appear in any rmdirSync call.
     const rmdirPaths = fs.__callLog
       .filter((c) => c.method === "rmdirSync")
@@ -299,16 +300,36 @@ describe("runUninstall", () => {
 
   it("surfaces deletion failure", () => {
     // GIVEN rmdirSync throws on a matching cache entry
-    const cachePath = "/home/test/.cache/opencode/node_modules/opencode-code-review";
+    const packagesBase = "/home/test/.cache/opencode/packages";
+    const resolvedCachePath = `${packagesBase}/${PLUGIN_NAME}@1.0.0`;
     const fs = createMemFs(
       {
         [CONFIG]: JSON.stringify({ plugin: [PLUGIN_NAME] }),
       },
-      { throwPaths: new Set([cachePath]) },
+      { throwPaths: new Set([resolvedCachePath]) },
     );
+    // Mock readdirSync so resolveCachePaths returns the entry whose path will throw.
+    fs.readdirSync = (p: string) => {
+      if (p === packagesBase) return [`${PLUGIN_NAME}@1.0.0`];
+      return [];
+    };
     // WHEN purge runs, THEN the failure is surfaced (not silently swallowed).
     // The implementation re-throws from purgeDir when rmdirSync fails.
     expect(() => runUninstall({ purge: true }, fs)).toThrow();
+  });
+
+  it("writes correct config when removing the last plugin entry", () => {
+    // When uninstall removes the only plugin entry, the config is written via
+    // JSON.stringify + writeAtomically (writeJsoncAtomic handles key deletion
+    // via jsonc-parser modify whose edit range may include same-line comments).
+    const fs = createMemFs({
+      [CONFIG]: JSON.stringify({ $schema: "x", plugin: [PLUGIN_NAME] }),
+    });
+    const r = runUninstall({}, fs);
+    expect(r.status).toBe("wrote");
+    const w = JSON.parse(fs.__files.get(CONFIG) as string);
+    expect(w.plugin).toBeUndefined();
+    expect(w.$schema).toBe("x");
   });
 
   it("config is written BEFORE purge", () => {

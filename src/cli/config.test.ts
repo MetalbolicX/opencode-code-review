@@ -535,6 +535,7 @@ describe("loadGlobalConfig", () => {
     expect(r).toEqual({
       path: "/home/me/.config/opencode/opencode.json",
       config: {},
+      rawText: "",
       existed: false,
     });
   });

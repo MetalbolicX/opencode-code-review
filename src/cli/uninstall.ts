@@ -21,7 +21,9 @@ import {
   matchesReviewPlugin,
   normalizePlugin,
   PLUGIN_NAME,
+  resolveCachePaths,
   writeAtomically,
+  writeJsoncAtomic,
 } from "./config.ts";
 import { createRealFs } from "./real-fs.ts";
 
@@ -92,16 +94,22 @@ export const runUninstall = (
   const remaining = existing.filter((entry) => !matchesReviewPlugin(entry));
 
   // Build the post-uninstall config object.
+  // Track removed keys so writeJsoncAtomic can generate deletion edits.
+  let removedKeys: string[] | undefined;
   if (removed.length > 0) {
     if (remaining.length === 0) {
       delete config.plugin;
+      removedKeys = ["plugin"];
     } else {
       config.plugin = remaining;
     }
   }
 
   // Compute purge candidates up front so dry-run can report them too.
-  const purgeCandidates = opts.purge ? [cachePath(), pluginConfigPath()] : [];
+  const cachePaths = resolveCachePaths(fs);
+  const purgeCandidates = opts.purge
+    ? [...cachePaths, pluginConfigPath()]
+    : [];
   const purged: string[] = [];
 
   if (opts.dryRun) {
@@ -125,7 +133,15 @@ export const runUninstall = (
   let backup: string | null = null;
   if (removed.length > 0 && loaded.existed) {
     backup = backupIfWritable(loaded.path, fs);
-    writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
+    // Use writeJsoncAtomic for value updates (preserves JSONC comments on
+    // unchanged keys — spec R9.2). For key removals writeAtomically is used
+    // since jsonc-parser's modify+applyEdits does not yet handle comment
+    // preservation on key deletion.
+    if (removedKeys) {
+      writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
+    } else {
+      writeJsoncAtomic(loaded.path, config, loaded.rawText, fs);
+    }
   }
 
   if (opts.purge) {

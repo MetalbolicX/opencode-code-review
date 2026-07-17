@@ -314,6 +314,39 @@ export const normalizePlugin = (raw: unknown): string[] => {
 };
 
 /**
+ * Enumerate cache entries in `~/.cache/opencode/packages/` that match the
+ * `opencode-code-review` plugin name prefix.
+ *
+ * Returns absolute paths for each matching entry so callers can pass them to
+ * `fs.rmdirSync`. The result is sorted for deterministic test output.
+ *
+ * Uses the injected `fs` adapter so tests can provide an in-memory mock.
+ *
+ * Matching: `opencode-code-review` OR `opencode-code-review@<anything>`
+ * Retained: any other entry in the packages directory is left untouched.
+ */
+export const resolveCachePaths = (
+  fs: CliFs,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] => {
+  const home = env.HOME ?? homedir();
+  const packagesDir = join(home, ".cache", "opencode", "packages");
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(packagesDir);
+  } catch {
+    // Directory doesn't exist — nothing to purge.
+    return [];
+  }
+
+  return entries
+    .filter((name) => matchesReviewPlugin(name))
+    .map((name) => join(packagesDir, name))
+    .sort();
+};
+
+/**
  * Dedupe the plugin list by base name (the part before the first `@`),
  * keeping the LAST occurrence of each base. Any `opencode-code-review`
  * entries are removed entirely so the install flow can append one fresh
@@ -448,18 +481,27 @@ const backupTimestamp = (date: Date): string => {
  * @param config       - The new parsed config object to write.
  * @param originalText - The original raw file text (used to compute edits).
  * @param fs           - Filesystem adapter.
+ * @param removedKeys  - Optional keys that were deleted from the original config.
  */
 export const writeJsoncAtomic = (
   targetPath: string,
   config: Record<string, unknown>,
   originalText: string,
   fs: CliFs,
+  removedKeys?: string[],
 ): void => {
   // Compute per-key targeted edits so comments outside changed keys survive.
   const allEdits: Edit[] = [];
   for (const [key, value] of Object.entries(config)) {
     const edits = modify(originalText, [key], value, {});
     allEdits.push(...edits);
+  }
+  // Handle keys that were deleted (not in config object but existed in original).
+  if (removedKeys) {
+    for (const key of removedKeys) {
+      const edits = modify(originalText, [key], undefined, {});
+      allEdits.push(...edits);
+    }
   }
 
   if (allEdits.length === 0) {
@@ -516,6 +558,8 @@ export interface LoadedConfig {
   path: string;
   /** Parsed config object — `{}` if the file was absent or unreadable. */
   config: Record<string, unknown>;
+  /** Raw file text — available only when `existed = true`. */
+  rawText: string;
   /** Whether the file existed on disk before loading. */
   existed: boolean;
   /**
@@ -541,15 +585,16 @@ export const loadGlobalConfig = (
 ): LoadedConfig => {
   const resolved = resolveConfigPath(fs, env);
   if (!resolved.existed) {
-    return { path: resolved.path, config: {}, existed: false };
+    return { path: resolved.path, config: {}, rawText: "", existed: false };
   }
   const raw = fs.readFileSync(resolved.path);
   try {
-    return { path: resolved.path, config: parseJsonc(raw), existed: true };
+    return { path: resolved.path, config: parseJsonc(raw), rawText: raw, existed: true };
   } catch (err) {
     return {
       path: resolved.path,
       config: {},
+      rawText: raw,
       existed: true,
       parseError: (err as Error).message,
     };

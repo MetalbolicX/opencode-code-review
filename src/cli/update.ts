@@ -20,13 +20,12 @@
 //   - runUpdate(): full lifecycle with registry/spawn/cache/purge seams
 // ---------------------------------------------------------------------------
 
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   type CliFs,
   loadGlobalConfig,
   matchesReviewPlugin,
   PLUGIN_NAME,
+  resolveCachePaths,
 } from "./config.ts";
 import { spawnOpencodePlugin, type ProcessRunner } from "./spawn.ts";
 import { fetchLatestVersion, type LatestVersionFn } from "./registry.ts";
@@ -79,39 +78,6 @@ export const extractVersion = (specifier: string): string | null => {
   if (at === -1) return null; // bare specifier — no version pin
   const version = specifier.slice(at + 1);
   return version.length > 0 ? version : null;
-};
-
-/**
- * Enumerate cache entries in `~/.cache/opencode/packages/` that match the
- * `opencode-code-review` plugin name prefix.
- *
- * Returns absolute paths for each matching entry so callers can pass them to
- * `fs.rmdirSync`. The result is sorted for deterministic test output.
- *
- * Uses the injected `fs` adapter so tests can provide an in-memory mock.
- *
- * Matching: `opencode-code-review` OR `opencode-code-review@<anything>`
- * Retained: any other entry in the packages directory is left untouched.
- */
-export const resolveCachePaths = (
-  fs: CliFs,
-  env: NodeJS.ProcessEnv = process.env,
-): string[] => {
-  const home = env.HOME ?? homedir();
-  const packagesDir = join(home, ".cache", "opencode", "packages");
-
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(packagesDir);
-  } catch {
-    // Directory doesn't exist — nothing to purge.
-    return [];
-  }
-
-  return entries
-    .filter((name) => matchesReviewPlugin(name))
-    .map((name) => join(packagesDir, name))
-    .sort();
 };
 
 /**
