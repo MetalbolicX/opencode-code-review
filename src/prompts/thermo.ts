@@ -136,6 +136,118 @@ const THERMO_RUBRIC_ZH = `
 `.trim();
 
 // ---------------------------------------------------------------------------
+// YAGNI 7-rung ladder data
+// ---------------------------------------------------------------------------
+
+/**
+ * Rung → (tags, EN question text, ZH question text)
+ * Tags reuse only the five existing SIMPLIFICATION_TAGS.
+ * Rung 7 is the functional-safety fallback baseline — no tag.
+ */
+type RungEntry = {
+  tags: readonly string[];
+  enQuestion: string;
+  zhQuestion: string;
+};
+
+const YAGNI_LADDER: readonly RungEntry[] = [
+  // Rung 1 — need to exist?
+  {
+    tags: ["delete", "yagni"],
+    enQuestion:
+      "Need to exist? Does this code genuinely need to exist, or can it be deleted outright?",
+    zhQuestion: "是否必须存在？这段代码是否真的必须存在，还是可以直接删除？",
+  },
+  // Rung 2 — reuse existing codebase code?
+  {
+    tags: ["yagni", "shrink"],
+    enQuestion:
+      "Reuse existing code? Can existing codebase patterns, utilities, or helpers fulfill this need?",
+    zhQuestion:
+      "能否复用现有代码？现有代码库中的模式、工具或辅助函数能否满足此需求？",
+  },
+  // Rung 3 — stdlib equivalent?
+  {
+    tags: ["stdlib"],
+    enQuestion:
+      "Stdlib equivalent? Is there a well-known stdlib or widely-used library that already does this?",
+    zhQuestion: "标准库等价物？是否有知名的标准库或广泛使用的库已实现此功能？",
+  },
+  // Rung 4 — native language feature?
+  {
+    tags: ["native"],
+    enQuestion:
+      "Native language feature? Can the platform, stdlib, or language built-ins handle this directly?",
+    zhQuestion:
+      "原生语言特性？平台、标准库或语言内置功能是否已能直接处理此事？",
+  },
+  // Rung 5 — installed dependency?
+  {
+    tags: ["stdlib"],
+    enQuestion:
+      "Installed dependency? You must check whether there is already an installed package that does this, avoiding a new dep.",
+    zhQuestion: "已安装的依赖？是否已有已安装的包实现此功能，避免引入新依赖？",
+  },
+  // Rung 6 — collapsible to one-liner?
+  {
+    tags: ["shrink"],
+    enQuestion:
+      "Collapsible to a one-liner? Can this be replaced by a single expression or builtin?",
+    zhQuestion: "可折叠为单行？此代码是否可被单个表达式或内置函数替代？",
+  },
+  // Rung 7 — safety fallback baseline
+  {
+    tags: [],
+    enQuestion:
+      "Safety fallback: verify this serves a distinct functional-safety contract (behaviour, validation, security, accessibility, or performance).",
+    zhQuestion:
+      "安全底线：确认此代码服务于独立的功能安全契约（行为、验证、安全性、可访问性或性能）。",
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Private ladder builder
+// ---------------------------------------------------------------------------
+
+/** Emit the ladder text for a given profile and language. Returns "" for "default". */
+const buildLadder = (profile: ReviewProfile, lang: "zh" | "en"): string => {
+  if (profile === "default") return "";
+
+  const maxRung = profile === "basic" ? 3 : profile === "medium" ? 5 : 7; // thermo-nuclear
+
+  const prefixEn =
+    profile === "basic"
+      ? "## YAGNI Simplification Lens (advisory — consider these questions)\n\n"
+      : profile === "medium"
+        ? "## YAGNI Simplification Lens (enforced review)\n\n"
+        : "## YAGNI Simplification Lens (thermo-nuclear)\n\n";
+
+  const prefixZh =
+    profile === "basic"
+      ? "## YAGNI 精简视角（建议——请考量以下问题）\n\n"
+      : profile === "medium"
+        ? "## YAGNI 精简视角（强制审查）\n\n"
+        : "## YAGNI 精简视角（热核级）\n\n";
+
+  const lines: string[] = [];
+
+  for (let i = 0; i < maxRung; i++) {
+    const rung = YAGNI_LADDER[i];
+    const num = i + 1;
+    const question = lang === "zh" ? rung.zhQuestion : rung.enQuestion;
+    const tagList = rung.tags.length > 0 ? ` [${rung.tags.join(" / ")}]` : "";
+    lines.push(`${num}. ${question}${tagList}`);
+  }
+
+  if (profile === "thermo-nuclear") {
+    const rubric = lang === "zh" ? THERMO_RUBRIC_ZH : THERMO_RUBRIC_EN;
+    return `${prefixEn + lines.join("\n")}\n\n${rubric}`;
+  }
+
+  return (lang === "zh" ? prefixZh : prefixEn) + lines.join("\n");
+};
+
+// ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
@@ -150,6 +262,10 @@ export const buildProfileDirective = (
   profile: ReviewProfile,
   lang: "zh" | "en",
 ): string => {
-  if (profile !== "thermo-nuclear") return "";
-  return lang === "zh" ? THERMO_RUBRIC_ZH : THERMO_RUBRIC_EN;
+  if (profile === "default") return "";
+  if (profile === "thermo-nuclear") {
+    const rubric = lang === "zh" ? THERMO_RUBRIC_ZH : THERMO_RUBRIC_EN;
+    return `${buildLadder(profile, lang)}\n\n${rubric}`;
+  }
+  return buildLadder(profile, lang);
 };

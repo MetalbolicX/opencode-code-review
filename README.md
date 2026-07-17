@@ -129,7 +129,7 @@ Create `.opencode/review.json` in your project (or `~/.config/opencode/review.js
 | `custom_rules` | Additional project-specific rules | `[]` |
 | `intensity` | Simplification-lens strictness (`"lite"` / `"full"` / `"ultra"`); see [Code Quality Simplification Lens](#code-quality-simplification-lens) | `"full"` |
 | `parallel` | Run dimension sub-agents in parallel (`true`) or sequentially (`false`) | `true` |
-| `profile` | Review profile (`"default"` or `"thermo-nuclear"`); see [Profiles](#profiles) | `"default"` |
+| `profile` | Review profile (`"default"` / `"basic"` / `"medium"` / `"thermo-nuclear"`); see [Profiles](#profiles) | `"default"` |
 
 ## Code Quality Simplification Lens
 
@@ -193,7 +193,50 @@ Simplification requires human judgment because auto-fixing it can change behavio
 
 ## Profiles
 
-`profile` selects a review profile that changes the tone, depth, and scope of the review. The default profile (`"default"`) is balanced for general use. The `"thermo-nuclear"` profile is an opt-in mode for teams that want maximum rigor.
+`profile` selects a review posture that changes the tone and depth of simplification guidance within the `code-quality` dimension. It is orthogonal to `intensity` and does not affect other dimensions or the auto-fixer.
+
+| Profile | Scope | Posture |
+|---------|-------|---------|
+| `"default"` | No ladder emitted | N/A — no simplification guidance |
+| `"basic"` | Code-quality ladder, rungs 1–3 | Advisory — "consider" wording |
+| `"medium"` | Code-quality ladder, rungs 1–5 | Enforced — "must" wording |
+| `"thermo-nuclear"` | Code-quality ladder, rungs 1–7 + existing thermo rubric | Aggressive — `[thermo]` exclusion |
+
+### YAGNI Ladder
+
+The ladder is a 7-rung "does this need to exist?" checklist. Each rung maps to one or more existing simplification tags. The ladder is emitted only within the `code-quality` dimension — security, performance, testing, and documentation dimensions are unaffected by any profile.
+
+| Rung | Question | Tags |
+|------|----------|------|
+| 1 | Need to exist? | `delete`, `yagni` |
+| 2 | Reuse existing codebase code? | `yagni`, `shrink` |
+| 3 | Stdlib equivalent? | `stdlib` |
+| 4 | Native language feature? | `native` |
+| 5 | Installed dependency? | `stdlib` |
+| 6 | Collapsible to a one-liner? | `shrink` |
+| 7 | Safety fallback baseline | none (functional-safety contract) |
+
+### `basic`
+
+Sets the review posture to advisory. The ladder includes rungs 1–3. Reviewers are asked to "consider" each question but no finding is blocked.
+
+```json
+{
+  "profile": "basic"
+}
+```
+
+Posture is prompt wording only — it does not gate, block, or auto-fix any candidate, and it does not affect the fixer.
+
+### `medium`
+
+Sets the review posture to enforced. The ladder includes rungs 1–5. Reviewers are expected to apply the "must" criteria when evaluating candidates.
+
+```json
+{
+  "profile": "medium"
+}
+```
 
 ### `thermo-nuclear`
 

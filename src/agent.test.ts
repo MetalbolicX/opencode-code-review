@@ -507,6 +507,156 @@ describe("fixer prompt — thermo exclusion (Phase B1)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// YAGNI ladder in orchestrator prompts — basic / medium profiles (Phase 3 / PR 2)
+//
+// Contract:
+//   basic / medium → ladder directive (YAGNI heading) appears in BOTH
+//                    single and parallel orchestrator prompts
+//   default       → no ladder directive in any orchestrator prompt
+//   thermo-nuclear → tested in Phase C section above (unchanged)
+// ---------------------------------------------------------------------------
+
+describe("buildAgentPrompt — YAGNI ladder in orchestrators (Phase 3)", () => {
+  for (const lang of ["zh", "en"] as const) {
+    // -- single-prompt (parallel: false) ---------------------------------------
+
+    it(`basic: ladder heading in single-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: false,
+        profile: "basic" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(prompt).toContain("Simplification Lens");
+      } else {
+        expect(prompt).toContain("精简视角");
+      }
+    });
+
+    it(`medium: ladder heading in single-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: false,
+        profile: "medium" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(prompt).toContain("Simplification Lens");
+      } else {
+        expect(prompt).toContain("精简视角");
+      }
+    });
+
+    it(`basic: 'advisory' posture in single-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: false,
+        profile: "basic" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain(lang === "en" ? "advisory" : "建议");
+    });
+
+    it(`medium: 'enforced' posture in single-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: false,
+        profile: "medium" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain(lang === "en" ? "enforced" : "强制审查");
+    });
+
+    it(`default: no ladder heading in single-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: false,
+        profile: "default" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).not.toContain("YAGNI");
+      expect(prompt).not.toContain("Simplification Lens");
+    });
+
+    // -- parallel-prompt (parallel: true) -------------------------------------
+
+    it(`basic: ladder heading in parallel-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        profile: "basic" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(prompt).toContain("Simplification Lens");
+      } else {
+        expect(prompt).toContain("精简视角");
+      }
+    });
+
+    it(`medium: ladder heading in parallel-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        profile: "medium" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(prompt).toContain("Simplification Lens");
+      } else {
+        expect(prompt).toContain("精简视角");
+      }
+    });
+
+    it(`basic: 'advisory' posture in parallel-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        profile: "basic" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain(lang === "en" ? "advisory" : "建议");
+    });
+
+    it(`medium: 'enforced' posture in parallel-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        profile: "medium" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).toContain(lang === "en" ? "enforced" : "强制审查");
+    });
+
+    it(`default: no ladder heading in parallel-prompt (${lang})`, () => {
+      const config = {
+        ...baseConfig,
+        language: lang,
+        parallel: true,
+        profile: "default" as const,
+      };
+      const prompt = buildAgentPrompt(config);
+      expect(prompt).not.toContain("YAGNI");
+      expect(prompt).not.toContain("Simplification Lens");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Agent prompts — thermo-nuclear profile (Phase C / PR #2)
 // ---------------------------------------------------------------------------
 

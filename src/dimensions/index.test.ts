@@ -492,6 +492,134 @@ describe("getDimensionPrompts — code-quality simplification lens", () => {
 });
 
 // ---------------------------------------------------------------------------
+// YAGNI ladder scope — code-quality only (Phase 3 / PR 2)
+//
+// Contract:
+//   basic / medium profiles → ladder appears ONLY in code-quality dimension
+//   all profiles            → security / performance / testing / documentation
+//                              prompts remain completely unchanged by buildProfileDirective
+//   default profile         → no ladder in any dimension (proven by thermo absence tests above)
+// ---------------------------------------------------------------------------
+
+describe("getDimensionPrompts — YAGNI ladder scope (Phase 3)", () => {
+  for (const lang of ["zh", "en"] as const) {
+    // -- basic profile: ladder heading appears in code-quality -----------------
+
+    it(`basic: ladder heading in code-quality prompt (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["code-quality", "security"],
+        profile: "basic" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      const cq = prompts.find((p) => p.name === "code-quality");
+      // EN heading: "## YAGNI Simplification Lens"
+      // ZH heading: "## YAGNI 精简视角"
+      expect(cq?.prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(cq?.prompt).toContain("Simplification Lens");
+      } else {
+        expect(cq?.prompt).toContain("精简视角");
+      }
+    });
+
+    it(`basic: 'advisory' posture keyword in code-quality prompt (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["code-quality"],
+        profile: "basic" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      // EN: "advisory"; ZH: "建议"
+      expect(prompts[0]?.prompt).toContain(lang === "en" ? "advisory" : "建议");
+    });
+
+    // -- medium profile: ladder heading + enforced posture in code-quality -------
+
+    it(`medium: ladder heading in code-quality prompt (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["code-quality", "security"],
+        profile: "medium" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      const cq = prompts.find((p) => p.name === "code-quality");
+      expect(cq?.prompt).toContain("YAGNI");
+      if (lang === "en") {
+        expect(cq?.prompt).toContain("Simplification Lens");
+      } else {
+        expect(cq?.prompt).toContain("精简视角");
+      }
+    });
+
+    it(`medium: 'enforced' posture keyword in code-quality prompt (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["code-quality"],
+        profile: "medium" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      // EN: "enforced"; ZH: "强制审查"
+      expect(prompts[0]?.prompt).toContain(
+        lang === "en" ? "enforced" : "强制审查",
+      );
+    });
+
+    // -- basic/medium: non-code-quality dimensions have NO ladder ---------------
+
+    it(`basic: security prompt does NOT contain ladder heading (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["security"],
+        profile: "basic" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      expect(prompts[0]?.prompt).not.toContain("YAGNI");
+      expect(prompts[0]?.prompt).not.toContain("Simplification Lens");
+    });
+
+    it(`medium: security prompt does NOT contain ladder heading (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["security"],
+        profile: "medium" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      expect(prompts[0]?.prompt).not.toContain("YAGNI");
+      expect(prompts[0]?.prompt).not.toContain("Simplification Lens");
+    });
+
+    it(`basic: testing prompt does NOT contain ladder heading (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["testing"],
+        profile: "basic" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      expect(prompts[0]?.prompt).not.toContain("YAGNI");
+    });
+
+    it(`basic: performance prompt does NOT contain ladder heading (${lang})`, () => {
+      const cfg = {
+        ...baseConfig,
+        language: lang,
+        dimensions: ["performance"],
+        profile: "basic" as const,
+      };
+      const prompts = getDimensionPrompts(cfg);
+      expect(prompts[0]?.prompt).not.toContain("YAGNI");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Thermo-nuclear profile injection (Phase C / PR #2)
 // ---------------------------------------------------------------------------
 

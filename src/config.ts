@@ -11,11 +11,16 @@ import {
 
 export type ReviewIntensity = "lite" | "full" | "ultra";
 
-export type ReviewProfile = "default" | "thermo-nuclear";
+export type ReviewProfile = "default" | "basic" | "medium" | "thermo-nuclear";
 
 const VALID_INTENSITIES: readonly ReviewIntensity[] = ["lite", "full", "ultra"];
 
-const VALID_PROFILES: readonly ReviewProfile[] = ["default", "thermo-nuclear"];
+const VALID_PROFILES: readonly ReviewProfile[] = [
+  "default",
+  "basic",
+  "medium",
+  "thermo-nuclear",
+];
 
 export interface ReviewConfig {
   language: string;
@@ -41,7 +46,7 @@ export interface ReviewConfig {
   intensity: ReviewIntensity;
   /**
    * Review profile that determines the rubric and rules applied.
-   * Anything other than `"default"` | `"thermo-nuclear"`
+   * Anything other than `"default"` | `"basic"` | `"medium"` | `"thermo-nuclear"`
    * (including missing) is normalised to `"default"` by `loadConfig`.
    */
   profile: ReviewProfile;

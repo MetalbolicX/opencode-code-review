@@ -272,4 +272,61 @@ describe("loadConfig", () => {
       expect(config.profile).toBe(want);
     }
   });
+
+  // -- basic / medium profile normalization --------------------------------
+  // Tasks 1.1 RED: these tests prove the new profile literals normalize.
+
+  it("normalizes 'basic' profile from project config", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "basic" }))
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("basic");
+  });
+
+  it("normalizes 'medium' profile from project config", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "medium" }))
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("medium");
+  });
+
+  it("project config 'basic' overrides global config 'medium'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "medium" }))
+      .mockResolvedValueOnce(JSON.stringify({ profile: "basic" }));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("basic");
+  });
+
+  it("project config 'medium' overrides global config 'thermo-nuclear'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "thermo-nuclear" }))
+      .mockResolvedValueOnce(JSON.stringify({ profile: "medium" }));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("medium");
+  });
+
+  it("unknown profile 'ultra' falls back to 'default'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "ultra" }))
+      .mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("default");
+  });
+
+  it("unknown profile in global config falls back to 'default'", async () => {
+    vi.mocked(readFile)
+      .mockResolvedValueOnce(JSON.stringify({ profile: "ultra" }))
+      .mockResolvedValueOnce(JSON.stringify({ profile: "basic" }));
+    const config = await loadConfig("/fake/project");
+    expect(config.profile).toBe("basic");
+  });
 });
