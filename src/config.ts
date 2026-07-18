@@ -53,7 +53,7 @@ export interface ReviewConfig {
 }
 
 const DEFAULT_CONFIG: ReviewConfig = {
-  language: "zh",
+  language: "en",
   dimensions: [
     "code-quality",
     "security",

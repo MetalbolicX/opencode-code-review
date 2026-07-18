@@ -667,3 +667,38 @@ describe("getDimensionPrompts — thermo-nuclear profile (Phase C)", () => {
     });
   }
 });
+
+describe("English is the default language", () => {
+  const defaultLangConfig: ReviewConfig = {
+    language: "en",
+    dimensions: allFiveDimensions,
+    max_diff_lines: 500,
+    trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+    custom_rules: [],
+    file_rules: [],
+    parallel: true,
+    intensity: "full",
+    profile: "default",
+  };
+
+  it("dimension labels render in English by default", () => {
+    const prompts = getDimensionPrompts(defaultLangConfig);
+    const joined = prompts.map((p) => p.prompt).join(" ");
+    expect(joined).toContain("**code quality**");
+    expect(joined).toContain("**security**");
+    expect(joined).toContain("**performance**");
+    expect(joined).toContain("**testing**");
+    expect(joined).toContain("**documentation**");
+    expect(joined).not.toContain("**代码质量**");
+    expect(joined).not.toContain("**安全性**");
+  });
+
+  it("section headers render in English by default", () => {
+    const prompts = getDimensionPrompts(defaultLangConfig);
+    const joined = prompts.map((p) => p.prompt).join(" ");
+    expect(joined).toContain("## Review Focus");
+    expect(joined).toContain("## Output Format");
+    expect(joined).not.toContain("## 审查要点");
+    expect(joined).not.toContain("## 输出格式");
+  });
+});

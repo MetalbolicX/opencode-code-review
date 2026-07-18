@@ -23,7 +23,7 @@ vi.mock("./rule-files.ts", () => ({
 const { readFile } = await import("node:fs/promises");
 
 const defaultConfig = {
-  language: "zh",
+  language: "en",
   dimensions: [
     "code-quality",
     "security",
@@ -48,6 +48,14 @@ describe("loadConfig", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("defaults to English language when no config files exist", async () => {
+    vi.mocked(readFile).mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    const config = await loadConfig("/fake/project");
+    expect(config.language).toBe("en");
   });
 
   it("returns default config when no config files exist", async () => {

@@ -59,6 +59,52 @@ describe("plugin smoke test", () => {
   });
 });
 
+describe("default language English", () => {
+  it("ocr-review:auto command description is English when language defaults to en", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "en",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+      profile: "default",
+    });
+
+    const result = await opencodeReview(makeFakeContext());
+    // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
+    const openCodeConfig: Record<string, any> = {};
+    result.config?.(openCodeConfig);
+    expect(openCodeConfig.command["ocr-review:auto"].description).toBe(
+      "Toggle auto-review on/off",
+    );
+  });
+
+  it("ocr-review:auto command description is Chinese when language is explicitly zh", async () => {
+    vi.mocked(loadConfig).mockResolvedValueOnce({
+      language: "zh",
+      dimensions: ["code-quality"],
+      max_diff_lines: 500,
+      trigger: { auto_on_idle: false, cooldown_seconds: 120 },
+      custom_rules: [],
+      file_rules: [],
+      parallel: true,
+      intensity: "full",
+      profile: "default",
+    });
+
+    const result = await opencodeReview(makeFakeContext());
+    // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
+    const openCodeConfig: Record<string, any> = {};
+    result.config?.(openCodeConfig);
+    expect(openCodeConfig.command["ocr-review:auto"].description).toBe(
+      "切换自动审查开关（on/off）",
+    );
+  });
+});
+
 describe("session.idle failure retry", () => {
   it("a failed promptAsync does not consume the cooldown (next idle retries)", async () => {
     vi.mocked(loadConfig).mockResolvedValueOnce({
