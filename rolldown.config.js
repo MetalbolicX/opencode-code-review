@@ -2,7 +2,7 @@ import { defineConfig } from "rolldown";
 
 export default defineConfig({
   input: {
-    "plugin": "src/index.ts",
+    "plugin": "src/entry.ts",
     "cli": "src/cli/main.ts",
   },
   // Keep jsonc-parser external so the published package resolves the real
