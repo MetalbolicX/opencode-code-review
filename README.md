@@ -14,6 +14,20 @@ An automatic code review plugin for [OpenCode](https://opencode.ai) CLI. Automat
 
 ## Installation
 
+### CLI installer (recommended)
+
+```bash
+npx opencode-code-review@latest install   # Register in global OpenCode config
+npx opencode-code-review@latest update     # Check for and apply updates
+npx opencode-code-review@latest status     # Show current install status
+npx opencode-code-review@latest doctor     # Run diagnostic checks
+```
+
+`install` directly updates the global OpenCode config file and removes any stale
+`opencode-code-review*` package-cache entries under `~/.cache/opencode/packages/`.
+A backup is created before writing. Re-running with the same version is a no-op
+that still purges stale cache entries.
+
 ### Local plugin (recommended)
 
 Copy or symlink into your OpenCode plugins directory:

@@ -306,6 +306,10 @@ export const normalizePlugin = (raw: unknown): string[] => {
     }
     return out;
   }
+  if (typeof raw === "string") {
+    // A bare string is treated as a single plugin entry.
+    return [raw];
+  }
   if (typeof raw === "object") {
     const obj = raw as Record<string, unknown>;
     return Object.keys(obj);

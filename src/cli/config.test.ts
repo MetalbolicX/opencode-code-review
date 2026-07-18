@@ -206,7 +206,7 @@ describe("normalizePlugin", () => {
   it("returns [] for undefined / null / primitives", () => {
     expect(normalizePlugin(undefined)).toEqual([]);
     expect(normalizePlugin(null)).toEqual([]);
-    expect(normalizePlugin("str")).toEqual([]);
+    expect(normalizePlugin("str")).toEqual(["str"]);
     expect(normalizePlugin(42)).toEqual([]);
   });
 

@@ -113,8 +113,8 @@ export interface MainResult {
  */
 export interface MainOptions {
   /**
-   * Injectable process runner for install / update. When provided, commands
-   * use it instead of the real `opencode plugin` spawn.
+   * Injectable process runner for update. When provided, update uses it
+   * instead of the real `opencode plugin` spawn.
    */
   spawn?: ProcessRunner;
   /**
@@ -176,7 +176,6 @@ export const runMain = async (
           version,
           dryRun: parsed.values["dry-run"] === true,
           yes: parsed.values.yes === true,
-          spawn: opts.spawn,
         });
         return { command, exitCode: 0 };
       }

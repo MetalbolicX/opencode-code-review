@@ -1,52 +1,124 @@
 // ---------------------------------------------------------------------------
-// src/cli/install.test.ts — Unit tests for `ocr install` (async spawn-delegator).
+// src/cli/install.test.ts — Unit tests for `ocr install` (direct config writer).
 //
-// `runInstall` is now an async function that delegates plugin registration
-// to `opencode plugin <specifier> --global` via a `ProcessRunner` seam.
-// Tests inject a fake runner to assert exact argv and behaviour; no config
-// file is ever written and no real subprocess is spawned.
+// `runInstall` directly edits the global OpenCode config file and purges
+// stale cache entries. Tests inject an in-memory `CliFs` to exercise every
+// branch deterministically without touching the real filesystem.
 //
-// Tests removed (install no longer touches config):
-//   - In-memory CliFs config-mutation tests
-//   - noop/path/backup result fields
-//
-// Task 2.1 RED tests:
-//   - Default bare install: spawns opencode plugin opencode-code-review --global
-//   - Version pin (--version 2.0.0): spawns opencode plugin opencode-code-review@2.0.0 --global
-//   - --latest: spawns bare specifier
-//   - --dry-run: prints planned command, returns status "skipped", zero spawn calls
-//   - Spawn failure (nonzero exit or missing executable): throws error, no config write
-//   - Spawn injection: tests inject a mock ProcessRunner to assert exact argv
+// Tests cover:
+//   - In-memory config write with correct plugin entry
+//   - Idempotent no-op when same version is already installed
+//   - Dry-run reports planned write and purge targets without writing
+//   - Malformed config throws without corrupting
+//   - Backup before write ordering
+//   - Stale cache purge during install
+//   - Failure behavior (backup safety)
 // ---------------------------------------------------------------------------
 
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProcessResult, ProcessRunner } from "./spawn.ts";
-import { PLUGIN_NAME } from "./config.ts";
 import { runInstall } from "./install.ts";
+import type { CliFs } from "./config.ts";
+import { PLUGIN_NAME } from "./config.ts";
 
 // ---------------------------------------------------------------------------
-// Fake process runner
+// Constants (resolved at test time using the env set in beforeEach)
 // ---------------------------------------------------------------------------
 
-const createFakeRunner = (
-  results: Partial<ProcessResult>[] = [],
-): ProcessRunner & { runCount: number[] } => {
-  const callCount: number[] = [];
-  const runner: ProcessRunner & { runCount: number[] } = {
-    runCount: callCount,
-    run: vi.fn(async (_executable, _args) => {
-      callCount.push(callCount.length);
-      const result = results[callCount.length - 1] ?? {};
-      return {
-        status: result.status ?? 0,
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
-        missing: result.missing ?? false,
-      };
-    }),
+const TEST_HOME = "/home/test";
+const CONFIG_PATH = join(TEST_HOME, ".config", "opencode", "opencode.json");
+const PACKAGES_DIR = join(TEST_HOME, ".cache", "opencode", "packages");
+
+// ---------------------------------------------------------------------------
+// Fake filesystem
+//
+// Tracks writes via a shallow copy approach so that writeFileSync overrides
+// (even on the same object reference) still write to our tracking map.
+// ---------------------------------------------------------------------------
+
+const createFakeFs = (
+  initialConfig?: Record<string, unknown>,
+  cacheEntries: string[] = [],
+): CliFs & { writtenFiles: Map<string, string>; purgedDirs: string[] } => {
+  const store = new Map<string, string>();
+  const writtenFiles = new Map<string, string>();
+  const purgedDirs: string[] = [];
+
+  if (initialConfig !== undefined) {
+    store.set(CONFIG_PATH, JSON.stringify(initialConfig));
+  }
+  if (cacheEntries.length > 0) {
+    store.set(PACKAGES_DIR, JSON.stringify(cacheEntries));
+  }
+
+  const fs = {
+    readFileSync: (path: string): string => {
+      const val = store.get(path);
+      if (val === undefined) throw new Error(`ENOENT: ${path}`);
+      return val;
+    },
+    writeFileSync: (path: string, content: string): void => {
+      store.set(path, content);
+      writtenFiles.set(path, content);
+    },
+    renameSync: (from: string, to: string): void => {
+      const content = store.get(from);
+      if (content !== undefined) {
+        store.delete(from);
+        store.set(to, content);
+        writtenFiles.set(to, content);
+      }
+    },
+    copyFileSync: (): void => {},
+    unlinkSync: (path: string): void => {
+      store.delete(path);
+    },
+    mkdirSync: (): void => {},
+    readdirSync: (path: string): string[] => {
+      const val = store.get(path);
+      if (val !== undefined) return JSON.parse(val) as string[];
+      // For cache subdirectories that should exist (based on PACKAGES_DIR contents),
+      // return empty array (empty directory).
+      if (path.startsWith(PACKAGES_DIR + "/")) return [];
+      throw new Error(`ENOENT: ${path}`);
+    },
+    existsSync: (path: string): boolean => {
+      if (store.has(path)) return true;
+      if (path === PACKAGES_DIR) return cacheEntries.length > 0;
+      // Cache subdirectories exist if the parent dir has cache entries.
+      if (path.startsWith(PACKAGES_DIR + "/")) {
+        const parentVal = store.get(PACKAGES_DIR);
+        if (parentVal !== undefined) {
+          const entries: string[] = JSON.parse(parentVal);
+          const subName = path.slice(PACKAGES_DIR.length + 1);
+          return entries.includes(subName);
+        }
+        return false;
+      }
+      return false;
+    },
+    rmdirSync: (path: string): void => {
+      purgedDirs.push(path);
+      // Remove the directory itself and all entries under it from the store.
+      for (const key of [...store.keys()]) {
+        if (key === path || key.startsWith(path + "/")) store.delete(key);
+      }
+    },
+    canWrite: (): boolean => true,
   };
-  return runner;
+
+  const tracked = fs as unknown as CliFs & {
+    writtenFiles: Map<string, string>;
+    purgedDirs: string[];
+  };
+  tracked.writtenFiles = writtenFiles;
+  tracked.purgedDirs = purgedDirs;
+  return tracked;
 };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 let savedEnv: Record<string, string | undefined>;
 beforeEach(() => {
@@ -69,96 +141,218 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
 describe("runInstall", () => {
-  // Task 2.1 RED: Default bare install — spawns opencode plugin opencode-code-review --global
-  it("spawns opencode plugin opencode-code-review --global", async () => {
-    const runner = createFakeRunner([{ status: 0 }]);
-    const r = await runInstall({ spawn: runner });
-    expect(r.status).toBe("wrote");
-    expect(r.specifier).toBe(PLUGIN_NAME);
-    expect(runner.run).toHaveBeenCalledTimes(1);
-    expect(runner.run).toHaveBeenCalledWith("opencode", [
-      "plugin",
-      PLUGIN_NAME,
-      "--global",
-    ]);
+  // Default bare install — writes config with bare plugin specifier
+  it("writes config with bare plugin specifier", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    // backup is non-null when file already existed
+    expect(result.backup).not.toBeNull();
+    expect(result.purged).toEqual([]);
+    // Config was written to the store
+    const stored = fs.writtenFiles.get(CONFIG_PATH);
+    expect(stored).toBeDefined();
+    const parsed = JSON.parse(stored!);
+    expect(parsed.plugin).toEqual([PLUGIN_NAME]);
   });
 
-  // Task 2.1 RED: Version pin — --version 2.0.0 spawns with version suffix
-  it("spawns with version suffix when --version is given", async () => {
-    const runner = createFakeRunner([{ status: 0 }]);
-    const r = await runInstall({ version: "2.0.0", spawn: runner });
-    expect(r.status).toBe("wrote");
-    expect(r.specifier).toBe(`${PLUGIN_NAME}@2.0.0`);
-    expect(runner.run).toHaveBeenCalledWith("opencode", [
-      "plugin",
-      `${PLUGIN_NAME}@2.0.0`,
-      "--global",
-    ]);
+  // Version pin — writes with version suffix
+  it("writes config with version suffix when --version is given", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({ version: "2.0.0" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.specifier).toBe(`${PLUGIN_NAME}@2.0.0`);
+    const stored = fs.writtenFiles.get(CONFIG_PATH);
+    expect(stored).toBeDefined();
+    const parsed = JSON.parse(stored!);
+    expect(parsed.plugin).toEqual([`${PLUGIN_NAME}@2.0.0`]);
   });
 
-  // Task 2.1 RED: --latest flag spawns bare specifier (latest version from npm)
-  it("--latest spawns bare specifier", async () => {
-    const runner = createFakeRunner([{ status: 0 }]);
-    const r = await runInstall({ version: "latest", spawn: runner });
-    expect(r.status).toBe("wrote");
-    expect(r.specifier).toBe(PLUGIN_NAME);
-    expect(runner.run).toHaveBeenCalledWith("opencode", [
-      "plugin",
-      PLUGIN_NAME,
-      "--global",
-    ]);
+  // --latest flag — writes bare specifier (latest from npm)
+  it("--latest writes bare specifier", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({ version: "latest" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    const stored = fs.writtenFiles.get(CONFIG_PATH);
+    expect(stored).toBeDefined();
+    const parsed = JSON.parse(stored!);
+    expect(parsed.plugin).toEqual([PLUGIN_NAME]);
   });
 
-  // Task 2.1 RED: --dry-run prints planned command, returns status "skipped", zero spawn calls
-  it("dry-run prints planned command and returns status skipped with zero spawn calls", async () => {
-    const runner = createFakeRunner([]);
-    const r = await runInstall({ dryRun: true, spawn: runner });
-    expect(r.status).toBe("skipped");
-    expect(r.specifier).toBe(PLUGIN_NAME);
-    expect(runner.run).toHaveBeenCalledTimes(0);
+  // Idempotent no-op — same version reinstall
+  it("returns noop when same version is already installed", () => {
+    const fs = createFakeFs({ plugin: [PLUGIN_NAME] });
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("noop");
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    expect(result.backup).toBeNull();
   });
 
-  // Task 2.1 RED: --dry-run with version prints the pinned specifier
-  it("dry-run with version prints the pinned specifier", async () => {
-    const runner = createFakeRunner([]);
+  // Idempotent no-op with version
+  it("returns noop when same versioned specifier is already installed", () => {
+    const fs = createFakeFs({ plugin: [`${PLUGIN_NAME}@2.0.0`] });
+    const result = runInstall({ version: "2.0.0" }, fs, process.env);
+    expect(result.status).toBe("noop");
+    expect(result.specifier).toBe(`${PLUGIN_NAME}@2.0.0`);
+    expect(result.backup).toBeNull();
+  });
+
+  // No-op with stale cache — purge cache without rewriting config
+  it("noop with stale cache purges cache but does not write config or create backup", () => {
+    const fs = createFakeFs(
+      { plugin: [PLUGIN_NAME] },
+      [`${PLUGIN_NAME}@1.0.0`, `${PLUGIN_NAME}@2.0.0`],
+    );
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("noop");
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    expect(result.backup).toBeNull();
+    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
+    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@2.0.0`);
+    // Config must NOT be rewritten — writtenFiles must not contain CONFIG_PATH
+    expect(fs.writtenFiles.has(CONFIG_PATH)).toBe(false);
+  });
+
+  // Dry-run — reports planned write without writing
+  it("dry-run reports planned write without writing", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({ dryRun: true }, fs, process.env);
+    expect(result.status).toBe("planned");
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    expect(fs.writtenFiles.size).toBe(0);
+  });
+
+  // Dry-run with stale cache — reports planned purge targets
+  it("dry-run reports planned cache purge targets", () => {
+    const fs = createFakeFs(
+      { plugin: [PLUGIN_NAME] },
+      [`${PLUGIN_NAME}@1.0.0`],
+    );
     const logSpy = vi.spyOn(console, "log");
-    const r = await runInstall({ version: "2.0.0", dryRun: true, spawn: runner });
-    expect(r.status).toBe("skipped");
-    expect(r.specifier).toBe(`${PLUGIN_NAME}@2.0.0`);
+    const result = runInstall({ dryRun: true }, fs, process.env);
+    expect(result.status).toBe("planned");
+    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining(`${PLUGIN_NAME}@2.0.0`),
+      expect.stringContaining("Would purge stale cache"),
     );
-    expect(runner.run).toHaveBeenCalledTimes(0);
   });
 
-  // Task 2.1 RED: Spawn failure — nonzero exit throws error, no config write
-  it("throws when spawn returns nonzero exit", async () => {
-    const runner = createFakeRunner([{ status: 1, stderr: "plugin registration failed" }]);
-    await expect(runInstall({ spawn: runner })).rejects.toThrow(
-      "plugin registration failed",
+  // Stale cache purge — removes matching cache entries
+  it("purges stale cache entries during install", () => {
+    const fs = createFakeFs(
+      { plugin: [`${PLUGIN_NAME}@1.0.0`] },
+      [`${PLUGIN_NAME}@1.0.0`, `${PLUGIN_NAME}@2.0.0`, "other-plugin"],
     );
-    // Spawn was called once but the install did not succeed
-    expect(runner.run).toHaveBeenCalledTimes(1);
+    const result = runInstall({ version: "3.0.0" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
+    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@2.0.0`);
+    expect(result.purged).not.toContain(`${PACKAGES_DIR}/other-plugin`);
   });
 
-  // Task 2.1 RED: Spawn failure — missing executable throws clear error
-  it("throws when opencode executable is missing", async () => {
-    const runner = createFakeRunner([{ missing: true, stderr: "executable not found" }]);
-    await expect(runInstall({ spawn: runner })).rejects.toThrow(
-      "executable not found",
-    );
-    expect(runner.run).toHaveBeenCalledTimes(1);
+  // Preserves unrelated plugins
+  it("preserves unrelated plugin entries during install", () => {
+    const fs = createFakeFs({ plugin: ["some-other-plugin", PLUGIN_NAME] });
+    const result = runInstall({ version: "2.0.0" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    const stored = fs.writtenFiles.get(CONFIG_PATH)!;
+    const parsed = JSON.parse(stored);
+    expect(parsed.plugin).toContain("some-other-plugin");
+    expect(parsed.plugin).toContain(`${PLUGIN_NAME}@2.0.0`);
   });
 
-  // Task 2.1 RED: Spawn injection — assert exact argv
-  it("passes exact argv to the injected runner", async () => {
-    const runner = createFakeRunner([{ status: 0 }]);
-    await runInstall({ version: "3.1.4", spawn: runner });
-    expect(runner.run).toHaveBeenCalledWith("opencode", [
-      "plugin",
-      `${PLUGIN_NAME}@3.1.4`,
-      "--global",
-    ]);
+  // Backup before write ordering — backup happens before config write
+  // NOTE: this test sets up stale cache entries so rmdir is called.
+  it("creates backup before writing config", () => {
+    const fs = createFakeFs(
+      { plugin: [PLUGIN_NAME] },
+      [`${PLUGIN_NAME}@1.0.0`],
+    );
+    const writeOrder: string[] = [];
+    const origWriteFileSync = fs.writeFileSync.bind(fs);
+    fs.writeFileSync = (path: string, content: string) => {
+      writeOrder.push(`write:${path}`);
+      origWriteFileSync(path, content);
+    };
+    const origRmdirSync = fs.rmdirSync.bind(fs);
+    fs.rmdirSync = (path: string) => {
+      writeOrder.push(`rmdir:${path}`);
+      origRmdirSync(path);
+    };
+    runInstall({ version: "2.0.0" }, fs, process.env);
+    const configWriteIndex = writeOrder.findIndex(
+      (e) => e.startsWith("write:") && e.includes("opencode.json"),
+    );
+    const firstRmdirIndex = writeOrder.findIndex((e) => e.startsWith("rmdir:"));
+    // Config write must come before any purge rmdir
+    expect(configWriteIndex).toBeLessThan(firstRmdirIndex);
+  });
+
+  // Malformed config — throws without corrupting
+  it("throws when config is malformed JSON", () => {
+    const store = new Map<string, string>();
+    store.set(CONFIG_PATH, "{ invalid json }");
+    const fs = {
+      readFileSync: (path: string): string => {
+        const val = store.get(path);
+        if (val === undefined) throw new Error(`ENOENT: ${path}`);
+        return val;
+      },
+      writeFileSync: (): void => {},
+      renameSync: (): void => {},
+      copyFileSync: (): void => {},
+      unlinkSync: (): void => {},
+      mkdirSync: (): void => {},
+      readdirSync: (): string[] => [],
+      existsSync: (): boolean => true,
+      rmdirSync: (): void => {},
+      canWrite: (): boolean => true,
+    } as unknown as CliFs;
+    expect(() => runInstall({}, fs, process.env)).toThrow("malformed JSON");
+  });
+
+  // Result shape — all fields present
+  it("returns correct result shape for bare install", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.path).toBe(CONFIG_PATH);
+    expect(result.specifier).toBe(PLUGIN_NAME);
+    expect(typeof result.backup).toBe("string");
+    expect(result.purged).toEqual([]);
+  });
+
+  // Result shape — with version
+  it("returns correct result shape for versioned install", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({ version: "1.2.3" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(result.specifier).toBe(`${PLUGIN_NAME}@1.2.3`);
+    expect(result.purged).toEqual([]);
+  });
+
+  // Writes to correct path — resolves from HOME
+  it("writes to correct config path resolved from HOME", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({}, fs, { HOME: "/custom/home" });
+    expect(result.path).toBe("/custom/home/.config/opencode/opencode.json");
+  });
+
+  // No existing config — creates fresh config
+  it("creates fresh config when none exists", () => {
+    const fs = createFakeFs();
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("wrote");
+    expect(fs.writtenFiles.has(CONFIG_PATH)).toBe(true);
+    const stored = fs.writtenFiles.get(CONFIG_PATH)!;
+    const parsed = JSON.parse(stored);
+    expect(parsed.plugin).toEqual([PLUGIN_NAME]);
   });
 });
