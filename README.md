@@ -5,8 +5,8 @@ An automatic code review plugin for [OpenCode](https://opencode.ai) CLI. Automat
 ## Features
 
 - **Auto-review on idle** — automatically triggers code review when session completes, with configurable cooldown (`cooldown_seconds`) to prevent duplicate reviews
-- **Auto-fix chain** — critical issues spawn a `review:fixer` sub-agent that applies minimal fixes automatically
-- **On-demand review** — `/review` slash command or Tab-switchable `review` agent for manual reviews
+- **Auto-fix chain** — critical issues spawn a `ocr-review:fixer` sub-agent that applies minimal fixes automatically
+- **On-demand review** — `/ocr-review` slash command or Tab-switchable `ocr-review` agent for manual reviews
 - Three review scopes: staged changes, last commit, full branch diff
 - Configurable review dimensions (code quality, security, performance, testing, documentation)
 - Structured output with severity levels (critical / suggestion / highlight)
@@ -60,22 +60,22 @@ pnpm verify          # Run all checks (typecheck, lint, build, test)
 ### Slash Command
 
 ```
-/review                    # Review staged changes
-/review:auto               # Toggle auto-review (query current state)
-/review:auto on            # Enable auto-review
-/review:auto off           # Disable auto-review
+/ocr-review                    # Review staged changes
+/ocr-review:auto               # Toggle auto-review (query current state)
+/ocr-review:auto on            # Enable auto-review
+/ocr-review:auto off           # Disable auto-review
 ```
 
-Note: `/review:auto` changes are in-memory only and reset to the config file value on restart.
+Note: `/ocr-review:auto` changes are in-memory only and reset to the config file value on restart.
 
 ### Agent Mode
 
-Press `Tab` twice to switch to the `review` agent, then describe what you want reviewed.
+Press `Tab` twice to switch to the `ocr-review` agent, then describe what you want reviewed.
 
 ### CLI
 
 ```bash
-opencode run --agent review "Review the current changes"
+opencode run --agent ocr-review "Review the current changes"
 ```
 
 ## Configuration

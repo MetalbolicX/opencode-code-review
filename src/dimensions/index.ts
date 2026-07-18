@@ -388,6 +388,6 @@ export const getDimensionPrompts = (
     .filter((dim) => DIMENSIONS[dim])
     .map((dim) => ({
       name: dim,
-      agentName: `review:dim-${dim}`,
+      agentName: `ocr-review:dim-${dim}`,
       prompt: buildDimensionPrompt(dim, config, rules, customRules),
     }));

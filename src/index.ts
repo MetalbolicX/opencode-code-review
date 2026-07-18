@@ -51,7 +51,7 @@ const opencodeReview: Plugin = async ({
     async config(openCodeConfig) {
       openCodeConfig.agent ??= {};
 
-      openCodeConfig.agent.review = {
+      openCodeConfig.agent["ocr-review"] = {
         mode: "primary",
         temperature: 0.1,
         steps: 30,
@@ -71,7 +71,7 @@ const opencodeReview: Plugin = async ({
         },
       };
 
-      openCodeConfig.agent["review:fixer"] = {
+      openCodeConfig.agent["ocr-review:fixer"] = {
         mode: "subagent",
         temperature: 0.2,
         steps: 20,
@@ -104,14 +104,14 @@ const opencodeReview: Plugin = async ({
       }
 
       openCodeConfig.command ??= {};
-      openCodeConfig.command.review = {
-        agent: "review",
+      openCodeConfig.command["ocr-review"] = {
+        agent: "ocr-review",
         description: "Review code changes with structured feedback",
         template: agentPrompt,
       };
 
-      openCodeConfig.command["review:auto"] = {
-        agent: "review",
+      openCodeConfig.command["ocr-review:auto"] = {
+        agent: "ocr-review",
         description:
           config.language === "zh"
             ? "切换自动审查开关（on/off）"
@@ -144,13 +144,13 @@ const opencodeReview: Plugin = async ({
         try {
           await client.session.promptAsync({
             body: {
-              agent: "review",
-              parts: [
-                {
-                  type: "text",
-                  text: "Session completed. Running automatic code review on staged changes...",
-                },
-              ],
+            agent: "ocr-review",
+            parts: [
+              {
+                type: "text",
+                text: "Session completed. Running automatic code review on staged changes...",
+              },
+            ],
             },
             path: { id: sessionID },
           });

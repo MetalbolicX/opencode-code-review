@@ -48,14 +48,14 @@ describe("plugin smoke test", () => {
     expect(result.tool).toHaveProperty("toggle_auto_review");
   });
 
-  it("config function registers review and review:auto commands", async () => {
+  it("config function registers ocr-review and ocr-review:auto commands", async () => {
     const result = await opencodeReview(makeFakeContext());
     // biome-ignore lint: openCodeConfig is a plugin-internal mutable contract
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
-    expect(openCodeConfig.agent).toHaveProperty("review");
-    expect(openCodeConfig.command).toHaveProperty("review");
-    expect(openCodeConfig.command).toHaveProperty("review:auto");
+    expect(openCodeConfig.agent).toHaveProperty("ocr-review");
+    expect(openCodeConfig.command).toHaveProperty("ocr-review");
+    expect(openCodeConfig.command).toHaveProperty("ocr-review:auto");
   });
 });
 
@@ -106,8 +106,8 @@ describe("session.idle failure retry", () => {
   });
 });
 
-describe("parallel review:dim-* rule threading", () => {
-  it("registers a review:dim-* prompt containing configured file rule body text", async () => {
+describe("parallel ocr-review:dim-* rule threading", () => {
+  it("registers a ocr-review:dim-* prompt containing configured file rule body text", async () => {
     vi.mocked(loadConfig).mockResolvedValueOnce({
       language: "zh",
       dimensions: ["code-quality"],
@@ -133,14 +133,14 @@ describe("parallel review:dim-* rule threading", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
       "NEVER_USE_DEPRECATED_API",
     );
   });
 });
 
 describe("custom_rules threading into dimension prompts", () => {
-  it("registers a review:dim-* prompt containing configured custom rule text", async () => {
+  it("registers a ocr-review:dim-* prompt containing configured custom rule text", async () => {
     vi.mocked(loadConfig).mockResolvedValueOnce({
       language: "zh",
       dimensions: ["code-quality"],
@@ -161,7 +161,7 @@ describe("custom_rules threading into dimension prompts", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
       "All API endpoints must implement retry logic with exponential backoff",
     );
   });
@@ -188,10 +188,10 @@ describe("custom_rules threading into dimension prompts", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
       "Rule one: no console.log in production",
     );
-    expect(openCodeConfig.agent["review:dim-code-quality"].prompt).toContain(
+    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
       "Rule two: all functions must have JSDoc",
     );
   });

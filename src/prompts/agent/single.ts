@@ -55,12 +55,12 @@ ${intensitySection}${thermoSection}
 
 ## 自动修复
 
-如果审查发现关键问题（🔴），你必须使用 \`task\` 工具生成 \`review:fixer\` 子代理来修复这些问题。
+如果审查发现关键问题（🔴），你必须使用 \`task\` 工具生成 \`ocr-review:fixer\` 子代理来修复这些问题。
 
 操作步骤：
 1. 在输出中完成审查报告
 2. 如果存在关键问题，调用 task 工具，参数如下：
-   - agent: \`review:fixer\`
+   - agent: \`ocr-review:fixer\`
    - message: 包含所有关键问题的详细描述和修复方案，格式如下：
 
 \`\`\`
@@ -116,12 +116,12 @@ If diff is empty or no changes found, inform the user directly.
 
 ## Auto-Fix
 
-If the review finds critical issues (🔴), you MUST use the \`task\` tool to spawn a \`review:fixer\` sub-agent to fix them.
+If the review finds critical issues (🔴), you MUST use the \`task\` tool to spawn a \`ocr-review:fixer\` sub-agent to fix them.
 
 Steps:
 1. Complete the review report in your output
 2. If critical issues exist, call the task tool with:
-   - agent: \`review:fixer\`
+   - agent: \`ocr-review:fixer\`
    - message: detailed description of all critical issues and fix instructions, formatted as:
 
 \`\`\`

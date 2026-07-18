@@ -72,7 +72,7 @@ describe("getDimensionPrompts — existing behavior", () => {
   it("returns correct agentName format", () => {
     const config = { ...baseConfig, dimensions: ["code-quality"] };
     const prompts = getDimensionPrompts(config);
-    expect(prompts[0]?.agentName).toBe("review:dim-code-quality");
+    expect(prompts[0]?.agentName).toBe("ocr-review:dim-code-quality");
   });
 
   it("returns non-empty prompt strings for known dimensions", () => {
@@ -129,7 +129,7 @@ describe("getDimensionPrompts — new built-in dimensions", () => {
       const prompts = getDimensionPrompts(config);
       expect(prompts).toHaveLength(1);
       expect(prompts[0]?.name).toBe(dim);
-      expect(prompts[0]?.agentName).toBe(`review:dim-${dim}`);
+      expect(prompts[0]?.agentName).toBe(`ocr-review:dim-${dim}`);
     });
 
     it(`returns non-empty zh prompt for ${dim}`, () => {

@@ -41,7 +41,7 @@ describe("buildAgentPrompt", () => {
   it("returns orchestrator prompt when parallel is true", () => {
     const config = { ...baseConfig, parallel: true };
     const prompt = buildAgentPrompt(config);
-    expect(prompt).toContain("review:dim-code-quality");
+    expect(prompt).toContain("ocr-review:dim-code-quality");
   });
 
   it("produces different output for zh vs en", () => {

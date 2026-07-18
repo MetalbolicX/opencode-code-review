@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking**: Renamed slash commands `/review` → `/ocr-review` and `/review:auto` → `/ocr-review:auto` to avoid collision with OpenCode's built-in `review` command
+- **Breaking**: Renamed the primary agent `review` → `ocr-review`, fixer agent `review:fixer` → `ocr-review:fixer`, and dimension sub-agents `review:dim-*` → `ocr-review:dim-*`
+- Tool names (`review_changes`, `toggle_auto_review`), package name (`opencode-code-review`), CLI binary (`ocr`), and config paths (`review.json`, `review-rules/`) are unchanged
+
 ## [0.2.0] - 2025-05-19
 
 ### Added

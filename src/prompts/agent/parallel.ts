@@ -55,13 +55,13 @@ const AUTO_FIX_INSTRUCTION: Record<string, string> = {
 
 如果任何维度代理发现了关键问题（🔴），你必须：
 1. 汇总所有关键问题
-2. 使用 \`task\` 工具 spawn \`review:fixer\` 子代理，传入所有关键问题的修复指令
+2. 使用 \`task\` 工具 spawn \`ocr-review:fixer\` 子代理，传入所有关键问题的修复指令
 3. 等待 fixer 完成修复`,
   en: `## Auto-Fix
 
 If any dimension agent finds critical issues (🔴), you MUST:
 1. Collect all critical issues across dimensions
-2. Use the \`task\` tool to spawn a \`review:fixer\` sub-agent with combined fix instructions
+2. Use the \`task\` tool to spawn a \`ocr-review:fixer\` sub-agent with combined fix instructions
 3. Wait for the fixer to complete`,
 };
 
