@@ -578,4 +578,17 @@ describe("update.ts import-graph sanity", () => {
       expect(updateSource).not.toContain(symbol);
     }
   });
+
+  it("update.ts source must not import from ./registry", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const updateSource = readFileSync(
+      path.resolve(fileURLToPath(import.meta.url), "../update.ts"),
+      "utf8",
+    );
+
+    // The import path ./registry must not appear in update.ts
+    expect(updateSource).not.toContain("./registry");
+  });
 });
