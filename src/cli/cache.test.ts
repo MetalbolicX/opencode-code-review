@@ -8,7 +8,14 @@
 
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { purgeDirectory } from "./cache.ts";
+import {
+  CACHE_DIR_BASENAME,
+  PACKAGES_DIR_BASENAME,
+  purgeDirectory,
+  resolveCachePaths,
+  resolveHome,
+  resolvePackagesDir,
+} from "./cache.ts";
 import type { CliFs } from "./config.ts";
 
 // ---------------------------------------------------------------------------
@@ -147,5 +154,46 @@ describe("purgeDirectory", () => {
     // Root still in store because rmdirSync failed
     expect(store.has("/cache/ocr")).toBe(true);
     expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slice 1a — Minimal smoke tests (one happy-path per new export)
+// ---------------------------------------------------------------------------
+
+describe("resolveHome", () => {
+  it("returns HOME when set", () => {
+    expect(resolveHome({ HOME: "/custom" })).toBe("/custom");
+  });
+});
+
+describe("resolvePackagesDir", () => {
+  it("returns ~/.cache/opencode/packages for a given HOME", () => {
+    expect(resolvePackagesDir({ HOME: "/home/user" })).toBe(
+      "/home/user/.cache/opencode/packages",
+    );
+  });
+});
+
+describe("resolveCachePaths", () => {
+  it("returns matching plugin cache dirs when fs is provided", () => {
+    const home = "/home/user";
+    const packagesDir = join(home, ".cache", "opencode", "packages");
+    const store = new Map<string, DirEntry>([
+      [packagesDir, dir(["opencode-code-review", "other-plugin"])],
+    ]);
+    const fs = makeFakeFs(store);
+    const result = resolveCachePaths({ HOME: home }, fs);
+    expect(result).toContain(join(packagesDir, "opencode-code-review"));
+    expect(result).not.toContain(join(packagesDir, "other-plugin"));
+  });
+});
+
+describe("purgeDirectory — smoke", () => {
+  it("removes an empty directory", () => {
+    const store = new Map<string, DirEntry>([["/cache/ocr", dir([])]]);
+    const fs = makeFakeFs(store);
+    purgeDirectory(fs, "/cache/ocr");
+    expect(store.has("/cache/ocr")).toBe(false);
   });
 });

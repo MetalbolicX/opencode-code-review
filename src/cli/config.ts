@@ -20,11 +20,12 @@
 
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import {
-  applyEdits,
-  modify,
-  type Edit,
-} from "jsonc-parser";
+import { applyEdits, modify, type Edit } from "jsonc-parser";
+
+// Re-export from cache.ts for backward compatibility (update.ts imports from here).
+// TODO: Remove once update.ts is migrated to import from ./cache.ts directly.
+import { resolveCachePaths as _rc } from "./cache.ts";
+export const resolveCachePaths = (fs: CliFs, env = process.env) => _rc(env, fs);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -318,39 +319,6 @@ export const normalizePlugin = (raw: unknown): string[] => {
 };
 
 /**
- * Enumerate cache entries in `~/.cache/opencode/packages/` that match the
- * `opencode-code-review` plugin name prefix.
- *
- * Returns absolute paths for each matching entry so callers can pass them to
- * `fs.rmdirSync`. The result is sorted for deterministic test output.
- *
- * Uses the injected `fs` adapter so tests can provide an in-memory mock.
- *
- * Matching: `opencode-code-review` OR `opencode-code-review@<anything>`
- * Retained: any other entry in the packages directory is left untouched.
- */
-export const resolveCachePaths = (
-  fs: CliFs,
-  env: NodeJS.ProcessEnv = process.env,
-): string[] => {
-  const home = env.HOME ?? homedir();
-  const packagesDir = join(home, ".cache", "opencode", "packages");
-
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(packagesDir);
-  } catch {
-    // Directory doesn't exist — nothing to purge.
-    return [];
-  }
-
-  return entries
-    .filter((name) => matchesReviewPlugin(name))
-    .map((name) => join(packagesDir, name))
-    .sort();
-};
-
-/**
  * Dedupe the plugin list by base name (the part before the first `@`),
  * keeping the LAST occurrence of each base. Any `opencode-code-review`
  * entries are removed entirely so the install flow can append one fresh
@@ -593,7 +561,12 @@ export const loadGlobalConfig = (
   }
   const raw = fs.readFileSync(resolved.path);
   try {
-    return { path: resolved.path, config: parseJsonc(raw), rawText: raw, existed: true };
+    return {
+      path: resolved.path,
+      config: parseJsonc(raw),
+      rawText: raw,
+      existed: true,
+    };
   } catch (err) {
     return {
       path: resolved.path,

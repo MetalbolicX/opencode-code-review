@@ -21,11 +21,11 @@ import {
   matchesReviewPlugin,
   normalizePlugin,
   PLUGIN_NAME,
-  resolveCachePaths,
   writeAtomically,
   writeJsoncAtomic,
 } from "./config.ts";
 import { createRealFs } from "./real-fs.ts";
+import { resolveCachePaths } from "./cache.ts";
 
 export interface UninstallOptions {
   /** Also remove the runtime cache and the plugin's own config dir. */
@@ -64,20 +64,26 @@ export const pluginConfigPath = (
 ): string => join(homeRoot(env), ".config", PLUGIN_NAME);
 
 /**
- * Recursive delete via `fs.rmdirSync`. Returns the path on success.
- * Throws if the directory cannot be removed so the failure is surfaced
- * to the caller (not silently swallowed).
+ * Best-effort recursive delete via `fs.rmdirSync`.
+ * Failures are swallowed per-entry so one bad path doesn't abort the loop.
+ * Returns the path on success, or undefined if the operation failed.
  */
-const purgeDir = (path: string, fs: CliFs): string => {
-  fs.rmdirSync(path);
-  return path;
+const purgeDir = (path: string, fs: CliFs): string | undefined => {
+  try {
+    fs.rmdirSync(path);
+    return path;
+  } catch {
+    // best-effort — non-fatal
+    return undefined;
+  }
 };
 
 export const runUninstall = (
   opts: UninstallOptions = {},
   fs: CliFs = createRealFs(),
+  env: NodeJS.ProcessEnv = process.env,
 ): UninstallResult => {
-  const loaded = loadGlobalConfig(fs);
+  const loaded = loadGlobalConfig(fs, env);
 
   if (loaded.parseError) {
     throw new Error(
@@ -106,10 +112,8 @@ export const runUninstall = (
   }
 
   // Compute purge candidates up front so dry-run can report them too.
-  const cachePaths = resolveCachePaths(fs);
-  const purgeCandidates = opts.purge
-    ? [...cachePaths, pluginConfigPath()]
-    : [];
+  const cachePaths = resolveCachePaths(env, fs);
+  const purgeCandidates = opts.purge ? [...cachePaths, pluginConfigPath()] : [];
   const purged: string[] = [];
 
   if (opts.dryRun) {
@@ -138,7 +142,11 @@ export const runUninstall = (
     // since jsonc-parser's modify+applyEdits does not yet handle comment
     // preservation on key deletion.
     if (removedKeys) {
-      writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
+      writeAtomically(
+        loaded.path,
+        JSON.stringify(config, null, JSON_INDENT),
+        fs,
+      );
     } else {
       writeJsoncAtomic(loaded.path, config, loaded.rawText, fs);
     }
@@ -147,15 +155,12 @@ export const runUninstall = (
   if (opts.purge) {
     for (const p of purgeCandidates) {
       const result = purgeDir(p, fs);
-      if (result) purged.push(result);
+      if (result !== undefined) purged.push(result);
     }
   }
 
   // Nothing to remove from the config AND nothing to purge → true no-op.
-  if (
-    removed.length === 0 &&
-    purged.length === 0
-  ) {
+  if (removed.length === 0 && purged.length === 0) {
     console.log(`✓ Not installed: ${PLUGIN_NAME} not found in ${loaded.path}`);
     return { status: "noop", path: loaded.path, removed: [], purged: [] };
   }
