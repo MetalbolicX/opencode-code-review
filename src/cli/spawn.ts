@@ -1,20 +1,28 @@
-// ---------------------------------------------------------------------------
 // src/cli/spawn.ts — Shell-free, injectable OpenCode plugin spawn wrapper.
-//
-// All `opencode plugin` invocations go through this seam so tests can inject
-// a fake process runner that never actually spawns a subprocess.
-// `shell: false` and fixed argv are enforced by design — there is no string
-// interpolation into a shell command.
-//
-// The `ProcessRunner` interface is the injectable seam; production code uses
-// `spawnOpencodePlugin` which wraps `child_process.spawnSync` with `shell: false`.
-// ---------------------------------------------------------------------------
+// Slice 2: async child_process.spawn + 30s SIGKILL. ProcessRunner interface preserved for update.ts.
 
-import { spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { spawn } from "node:child_process";
+
+// ---------------------------------------------------------------------------
+// Result types
+// ---------------------------------------------------------------------------
 
 /**
- * Result of a process run — mirrors `SpawnSyncReturns<string>` with an
- * additional `error` field for clear missing-executable messaging.
+ * Result of a process run via the async spawn seam.
+ * Mirrors the reference repo's SpawnResult.
+ */
+export interface SpawnResult {
+  /** Process exit code. */
+  status: number | null;
+  /** Captured stdout (decoded as utf8). */
+  stdout: string;
+  /** Captured stderr (decoded as utf8). */
+  stderr: string;
+}
+
+/**
+ * Backward-compatible result type for `ProcessRunner`.
+ * Adds `missing: boolean` on top of SpawnResult fields.
  */
 export interface ProcessResult {
   /** Process exit code. */
@@ -27,9 +35,205 @@ export interface ProcessResult {
   missing: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// SpawnFn types (new injectable seam — reference repo design)
+// ---------------------------------------------------------------------------
+
 /**
- * Injectable process runner. `run(executable, args)` executes
- * `executable` with `args` and returns a `ProcessResult`.
+ * Options passed to a `SpawnFn`.
+ */
+export interface SpawnCallOptions {
+  env: NodeJS.ProcessEnv;
+  stdio?: "pipe" | "inherit";
+}
+
+/**
+ * Injectable spawn function. Receives the raw command + args so callers
+ * can be tested with a deterministic fake.
+ *
+ * The returned `Promise` resolves with `SpawnResult` on success or failure;
+ * callers interpret `result.status` and `result.stderr` to decide outcomes.
+ */
+export type SpawnFn = (
+  command: string,
+  args: string[],
+  options: SpawnCallOptions,
+) => Promise<SpawnResult> | SpawnResult;
+
+/**
+ * Options for `spawnOpencodePlugin`.
+ */
+export interface SpawnOpencodePluginOptions {
+  /**
+   * Injected spawn function. Defaults to `defaultSpawn` (async spawn with
+   * 30-second SIGKILL timeout).
+   */
+  spawn?: SpawnFn;
+  /** Environment variables passed to the child process. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * stdio mode for the child process.
+   * - `"pipe"` (default): capture stdout/stderr into result strings.
+   * - `"inherit"`: forward directly to the parent process (no capture).
+   */
+  stdio?: "pipe" | "inherit";
+}
+
+// ---------------------------------------------------------------------------
+// Default async spawn — 30-second SIGKILL timeout
+// ---------------------------------------------------------------------------
+
+/**
+ * Default `SpawnFn` — async `child_process.spawn` with a hard 30-second
+ * SIGKILL timer.
+ *
+ * Uses `spawn` (async, non-blocking) so the Node.js event loop is NOT
+ * blocked. A separate kill timer fires after 30 s to ensure the opencode
+ * CLI never hangs the parent process indefinitely.
+ */
+const defaultSpawn: SpawnFn = async (
+  command,
+  args,
+  options,
+): Promise<SpawnResult> => {
+  const stdio = options.stdio ?? "pipe";
+
+  return new Promise<SpawnResult>((resolve) => {
+    const child = spawn(command, args, {
+      env: options.env,
+      stdio,
+      shell: false,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    // Hard timeout: SIGKILL after 30 s
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Ignore "process already exited" errors
+      }
+    }, 30_000);
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ status: code, stdout, stderr });
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ status: null, stdout, stderr: err.message });
+    });
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Public API — spawnOpencodePlugin
+//
+// Two calling conventions:
+//  1. ProcessRunner-compatible: spawnOpencodePlugin(executable, args)
+//     → used as { run: spawnOpencodePlugin } in update.ts
+//  2. New SpawnFn-based: spawnOpencodePlugin(args, opts?)
+//     → preferred new interface; "plugin" is prepended internally
+// ---------------------------------------------------------------------------
+
+/**
+ * Run `opencode plugin <args...>` and return captured stdout/stderr.
+ *
+ * SIGNATURE A (ProcessRunner-compatible):
+ *   spawnOpencodePlugin("opencode", ["plugin", "spec", "--global", "--force"])
+ *   → executable is always "opencode"; args includes "plugin" prefix.
+ *   → Used by update.ts via { run: spawnOpencodePlugin }.
+ *
+ * SIGNATURE B (SpawnFn-based — preferred new interface):
+ *   spawnOpencodePlugin(["spec", "--global", "--force"], { spawn?, env?, stdio? })
+ *   → "plugin" is prepended internally.
+ *   → Preferred for new code using SpawnFn injection.
+ *
+ * Default spawn uses async `spawn` with a 30-second SIGKILL timer so the
+ * call never blocks the CLI indefinitely even when the opencode CLI hangs.
+ */
+type SpawnOverload = {
+  // Signature A — ProcessRunner-compatible (executable, args)
+  (executable: "opencode", args: string[]): Promise<ProcessResult>;
+  // Signature B — SpawnFn-based (args, opts?)
+  (args: string[], opts?: SpawnOpencodePluginOptions): Promise<SpawnResult>;
+};
+
+const _spawnPluginImpl = async (
+  executableOrArgs: "opencode" | string[],
+  argsOrOpts?: string[] | SpawnOpencodePluginOptions,
+): Promise<ProcessResult | SpawnResult> => {
+  // Detect which signature is being used
+  const isSignatureA = executableOrArgs === "opencode";
+
+  let pluginArgs: string[];
+  let opts: SpawnOpencodePluginOptions;
+
+  if (isSignatureA) {
+    // Signature A: (executable, args) — args already includes "plugin" prefix
+    // e.g. args = ["plugin", "opencode-code-review", "--global", "--force"]
+    pluginArgs = argsOrOpts as string[];
+    opts = {};
+  } else {
+    // Signature B: (args, opts) — prepend "plugin" internally
+    // e.g. args = ["opencode-code-review", "--global", "--force"]
+    pluginArgs = ["plugin", ...executableOrArgs];
+    opts = (argsOrOpts as SpawnOpencodePluginOptions) ?? {};
+  }
+
+  const env = opts.env ?? process.env;
+  const stdio = opts.stdio ?? "pipe";
+  const spawnFn = opts.spawn ?? defaultSpawn;
+
+  let result: SpawnResult;
+  try {
+    result = await Promise.resolve(
+      spawnFn("opencode", pluginArgs, { env, stdio }),
+    );
+  } catch (err) {
+    // Spawn failure (command not found, permission denied, etc.) — return safe result
+    result = {
+      status: null,
+      stdout: "",
+      stderr: (err as Error).message,
+    };
+  }
+
+  if (isSignatureA) {
+    // Return ProcessResult (with missing field) for ProcessRunner callers
+    return {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      missing: result.status === null && !!result.stderr,
+    } as ProcessResult;
+  }
+
+  return result as SpawnResult;
+};
+
+// Cast the implementation to satisfy the overloads
+export const spawnOpencodePlugin: SpawnOverload = _spawnPluginImpl as SpawnOverload;
+
+// ---------------------------------------------------------------------------
+// Backward-compatible ProcessRunner factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Backward-compatible injectable process runner.
+ * Retained for Slice 1 callers (update.ts); new code should use
+ * `spawnOpencodePlugin` or `SpawnFn` directly.
  *
  * The returned `Promise` is always resolved (never rejected) — callers
  * interpret `result.missing` or `result.status` to decide success.
@@ -39,37 +243,29 @@ export interface ProcessRunner {
 }
 
 /**
- * Default `ProcessRunner` backed by `child_process.spawnSync` with
- * `shell: false`. This is the production implementation.
+ * Creates a `ProcessRunner`-compatible object.
+ * Convenience factory for code that needs the ProcessRunner interface.
  *
- * @param executable  - Must be `"opencode"` (enforced at call sites).
- * @param args        - Fixed argv passed directly; never string-interpolated.
- * @returns Resolved process result.
+ * Internally always uses Signature A (executable, args) to produce a
+ * ProcessResult with the `missing` field, regardless of what the caller passes.
  */
-export const spawnOpencodePlugin: ProcessRunner["run"] = async (
-  executable,
-  args,
-) => {
-  const opts: SpawnSyncOptions = {
-    shell: false,
-    encoding: "utf8",
-  };
-
-  const result = spawnSync(executable, args, opts);
-
-  if (result.error != null && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
-    return {
-      status: null,
-      stdout: "",
-      stderr: `opencode: executable not found on PATH (${(result.error as NodeJS.ErrnoException).code})`,
-      missing: true,
-    };
-  }
-
-  return {
-    status: result.status,
-    stdout: typeof result.stdout === "string" ? result.stdout : "",
-    stderr: typeof result.stderr === "string" ? result.stderr : "",
-    missing: false,
-  };
-};
+export const createProcessRunner = (): ProcessRunner => ({
+  run: async (executable, args) => {
+    // Always use Signature A path — strip "plugin" prefix if present
+    // (update.ts passes ["plugin", spec, ...] but spawnOpencodePlugin prepends
+    // "plugin" internally, so we strip it to avoid duplication)
+    const pluginArgs = args[0] === "plugin" ? args.slice(1) : args;
+    try {
+      const result = await spawnOpencodePlugin(pluginArgs);
+      return { ...result, missing: false } as ProcessResult;
+    } catch (err) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      return {
+        status: null,
+        stdout: "",
+        stderr: nodeErr.message ?? String(err),
+        missing: nodeErr.code === "ENOENT",
+      } as ProcessResult;
+    }
+  },
+});

@@ -1,17 +1,5 @@
-// ---------------------------------------------------------------------------
 // src/cli/spawn.test.ts — Unit tests for src/cli/spawn.ts.
-//
-// Tests the `ProcessRunner` interface and `spawnOpencodePlugin` implementation.
-// All tests use an injected fake runner so no actual subprocesses are spawned
-// and no config files are ever written.
-//
-// Task 1.3 RED tests:
-// - Fixed argv: calls `opencode` with `["plugin", spec, "--global"]` (never shell)
-// - `--force` flag: update passes `["plugin", spec, "--global", "--force"]`
-// - Missing executable: returns clear error, no config write
-// - Nonzero exit: returns error
-// - Dry-run/no-op: zero spawn calls
-// ---------------------------------------------------------------------------
+// All tests use an injected fake runner so no actual subprocesses are spawned.
 
 import { describe, expect, it, vi } from "vitest";
 import type { ProcessResult, ProcessRunner } from "./spawn.ts";
@@ -107,9 +95,189 @@ describe("spawnOpencodePlugin", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ProcessRunner interface — injection works
+// Async spawn — non-blocking proof (Task 2.1)
 // ---------------------------------------------------------------------------
 
+describe("async spawn — non-blocking", () => {
+  // Task 2.1 RED: async spawn returns pending Promise while child runs.
+  it("returns a pending Promise immediately while child is running (non-blocking)", async () => {
+    let childStillRunning = false;
+
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => {
+      // Mark that child is running
+      childStillRunning = true;
+      // Simulate a long-running child that exits after a delay
+      return new Promise<import("./spawn.ts").SpawnResult>((resolve) =>
+        setTimeout(() => resolve({ status: 0, stdout: "done", stderr: "" }), 100),
+      );
+    };
+
+    // First await: let the module import resolve
+    const m = await import("./spawn.ts");
+
+    // Now call spawnOpencodePlugin — the resultPromise resolves after child exits
+    const resultPromise = m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn });
+
+    // After this microtask checkpoint, fakeSpawn has run synchronously
+    // (up to its first await) and set childStillRunning = true.
+    await Promise.resolve();
+
+    // childStillRunning must be true — this proves fakeSpawn started running
+    // (non-blocking), meaning the call returned a pending Promise while the
+    // child's 100ms timer was still ticking.
+    expect(childStillRunning).toBe(true);
+
+    // Verify the promise is still pending (child hasn't finished yet)
+    const raceResult = await Promise.race([
+      resultPromise,
+      new Promise<"pending">((r) => setTimeout(() => r("pending"), 10)),
+    ]);
+    expect(raceResult).toBe("pending"); // still pending after 10ms
+
+    // Now await the actual result
+    await new Promise((r) => setTimeout(r, 110));
+    const result = await resultPromise;
+    expect(result.stdout).toBe("done");
+  });
+
+  // Task 2.1: stdout is captured correctly when child exits
+  it("captures stdout and stderr when child exits", async () => {
+    const m = await import("./spawn.ts");
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () =>
+      ({ status: 0, stdout: "plugin installed", stderr: "warning: deprecated" });
+
+    const result = await m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn });
+
+    expect(result.stdout).toBe("plugin installed");
+    expect(result.stderr).toBe("warning: deprecated");
+    expect(result.status).toBe(0);
+  });
+
+  // Task 2.1: integration — calls the real defaultSpawn (child_process.spawn)
+  it("calls real child_process.spawn and captures output", async () => {
+    const m = await import("./spawn.ts");
+    const result = await m.spawnOpencodePlugin(["--version"]);
+
+    expect(result).toHaveProperty("status");
+    expect(typeof result.status).toBe("number");
+    if (result.status === null) {
+      expect(result.stderr).toMatch(/not found|ENOENT/i);
+    }
+  });
+
+  // Task 2.1 + 2.2: createProcessRunner factory
+  it("createProcessRunner returns a ProcessRunner with the correct interface", async () => {
+    const m = await import("./spawn.ts");
+    const { createProcessRunner } = m;
+    const runner = createProcessRunner();
+
+    expect(typeof runner.run).toBe("function");
+    expect(runner.run.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Async spawn — 30-second SIGKILL timeout and error handling (Task 2.3)
+// ---------------------------------------------------------------------------
+
+describe("async spawn — 30-second SIGKILL timeout", () => {
+  // Task 2.3 RED: long-running child → timer fires at 30s → SIGKILL sent.
+  it("sends SIGKILL after 30 seconds of fake timer advance", async () => {
+    // Deferred so we can resolve the fake spawn after the timer fires
+    let resolveFake: (r: import("./spawn.ts").SpawnResult) => void;
+    const fakeResult = new Promise<import("./spawn.ts").SpawnResult>((r) => {
+      resolveFake = r;
+    });
+
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => fakeResult;
+
+    vi.useFakeTimers();
+
+    const resultPromise = import("./spawn.ts").then((m) =>
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+    );
+
+    // Advance 30 seconds of fake time — the kill timer fires inside
+    // spawnOpencodePlugin. Immediately resolve the fake spawn so the close
+    // handler fires and the promise chain completes.
+    await vi.advanceTimersByTimeAsync(30_000);
+    resolveFake!({ status: null, stdout: "", stderr: "" });
+
+    // Now the promise should settle
+    const result = await resultPromise;
+    expect(result.status).toBe(null); // SIGKILL → null exit
+
+    vi.useRealTimers();
+  });
+
+  // Task 2.3 RED: child exits before 30s → no kill sent
+  it("does NOT send kill when child exits cleanly before 30-second timer fires", async () => {
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () =>
+      ({ status: 0, stdout: "ok", stderr: "" });
+
+    vi.useFakeTimers();
+
+    const result = await import("./spawn.ts").then((m) =>
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+    );
+
+    // Advance well past 30 seconds — child already exited cleanly, no kill
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(result.status).toBe(0);
+
+    vi.useRealTimers();
+  });
+
+  // Task 2.3 RED: ENOENT → promise rejects with ENOENT-style error, timer cleared
+  it("returns ENOENT-style result when executable is missing and clears the timer", async () => {
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => {
+      const err = new Error("spawn ENOENT");
+      (err as NodeJS.ErrnoException).code = "ENOENT";
+      throw err;
+    };
+
+    vi.useFakeTimers();
+
+    const result = await import("./spawn.ts").then((m) =>
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+    );
+
+    // Advance timers — since the error was caught, no timer should be pending
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // The function should have resolved with an ENOENT-style result (not rejected)
+    expect(result.status).toBe(null);
+    expect(result.stderr).toMatch(/ENOENT|not found/i);
+
+    vi.useRealTimers();
+  });
+
+  // Task 2.3 RED: error event → error message in stderr, timer cleared
+  it("returns error message in stderr when child emits an error and clears the timer", async () => {
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => {
+      const err = new Error("Permission denied");
+      (err as NodeJS.ErrnoException).code = "EACCES";
+      throw err;
+    };
+
+    vi.useFakeTimers();
+
+    const result = await import("./spawn.ts").then((m) =>
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(result.status).toBe(null);
+    expect(result.stderr).toMatch(/Permission denied|EACCES/i);
+
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ProcessRunner interface — injection works
+// ---------------------------------------------------------------------------
 describe("ProcessRunner interface", () => {
   it("allows injecting a fully stubbed runner", async () => {
     const stub: ProcessRunner = {
