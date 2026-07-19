@@ -91,7 +91,7 @@ export interface SpawnOpencodePluginOptions {
  * blocked. A separate kill timer fires after 30 s to ensure the opencode
  * CLI never hangs the parent process indefinitely.
  */
-const defaultSpawn: SpawnFn = async (
+export const defaultSpawn: SpawnFn = async (
   command,
   args,
   options,
@@ -142,7 +142,7 @@ const defaultSpawn: SpawnFn = async (
 //
 // Two calling conventions:
 //  1. ProcessRunner-compatible: spawnOpencodePlugin(executable, args)
-//     → used as { run: spawnOpencodePlugin } in update.ts
+//     → executable is always "opencode"; args includes "plugin" prefix.
 //  2. New SpawnFn-based: spawnOpencodePlugin(args, opts?)
 //     → preferred new interface; "plugin" is prepended internally
 // ---------------------------------------------------------------------------
@@ -164,8 +164,9 @@ const defaultSpawn: SpawnFn = async (
  * call never blocks the CLI indefinitely even when the opencode CLI hangs.
  */
 type SpawnOverload = {
-  // Signature A — ProcessRunner-compatible (executable, args)
-  (executable: "opencode", args: string[]): Promise<ProcessResult>;
+  // Signature A — ProcessRunner-compatible (executable, args, opts?)
+  // The third arg { spawn?, env?, stdio? } is for unit-test injectability only.
+  (executable: "opencode", args: string[], opts?: SpawnOpencodePluginOptions): Promise<ProcessResult>;
   // Signature B — SpawnFn-based (args, opts?)
   (args: string[], opts?: SpawnOpencodePluginOptions): Promise<SpawnResult>;
 };
@@ -173,6 +174,7 @@ type SpawnOverload = {
 const _spawnPluginImpl = async (
   executableOrArgs: "opencode" | string[],
   argsOrOpts?: string[] | SpawnOpencodePluginOptions,
+  signatureAOpts?: SpawnOpencodePluginOptions,
 ): Promise<ProcessResult | SpawnResult> => {
   // Detect which signature is being used
   const isSignatureA = executableOrArgs === "opencode";
@@ -181,10 +183,10 @@ const _spawnPluginImpl = async (
   let opts: SpawnOpencodePluginOptions;
 
   if (isSignatureA) {
-    // Signature A: (executable, args) — args already includes "plugin" prefix
-    // e.g. args = ["plugin", "opencode-code-review", "--global", "--force"]
+    // Signature A: (executable, args, opts?)
+    // args already includes "plugin" prefix; opts is for testing injectability.
     pluginArgs = argsOrOpts as string[];
-    opts = {};
+    opts = signatureAOpts ?? {};
   } else {
     // Signature B: (args, opts) — prepend "plugin" internally
     // e.g. args = ["opencode-code-review", "--global", "--force"]
@@ -227,45 +229,14 @@ const _spawnPluginImpl = async (
 export const spawnOpencodePlugin: SpawnOverload = _spawnPluginImpl as SpawnOverload;
 
 // ---------------------------------------------------------------------------
-// Backward-compatible ProcessRunner factory
+// ProcessRunner interface (used by update.ts and main.ts option types)
 // ---------------------------------------------------------------------------
 
 /**
- * Backward-compatible injectable process runner.
- * Retained for Slice 1 callers (update.ts); new code should use
- * `spawnOpencodePlugin` or `SpawnFn` directly.
- *
+ * Injectable process runner used by update.ts and main.ts.
  * The returned `Promise` is always resolved (never rejected) — callers
- * interpret `result.missing` or `result.status` to decide success.
+ * interpret `result.missing` or `result.status` to decide outcomes.
  */
 export interface ProcessRunner {
   run(executable: "opencode", args: string[]): Promise<ProcessResult>;
 }
-
-/**
- * Creates a `ProcessRunner`-compatible object.
- * Convenience factory for code that needs the ProcessRunner interface.
- *
- * Internally always uses Signature A (executable, args) to produce a
- * ProcessResult with the `missing` field, regardless of what the caller passes.
- */
-export const createProcessRunner = (): ProcessRunner => ({
-  run: async (executable, args) => {
-    // Always use Signature A path — strip "plugin" prefix if present
-    // (update.ts passes ["plugin", spec, ...] but spawnOpencodePlugin prepends
-    // "plugin" internally, so we strip it to avoid duplication)
-    const pluginArgs = args[0] === "plugin" ? args.slice(1) : args;
-    try {
-      const result = await spawnOpencodePlugin(pluginArgs);
-      return { ...result, missing: false } as ProcessResult;
-    } catch (err) {
-      const nodeErr = err as NodeJS.ErrnoException;
-      return {
-        status: null,
-        stdout: "",
-        stderr: nodeErr.message ?? String(err),
-        missing: nodeErr.code === "ENOENT",
-      } as ProcessResult;
-    }
-  },
-});

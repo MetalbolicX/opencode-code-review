@@ -165,15 +165,7 @@ describe("async spawn — non-blocking", () => {
     }
   });
 
-  // Task 2.1 + 2.2: createProcessRunner factory
-  it("createProcessRunner returns a ProcessRunner with the correct interface", async () => {
-    const m = await import("./spawn.ts");
-    const { createProcessRunner } = m;
-    const runner = createProcessRunner();
 
-    expect(typeof runner.run).toBe("function");
-    expect(runner.run.length).toBe(2);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -272,6 +264,94 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
     expect(result.stderr).toMatch(/Permission denied|EACCES/i);
 
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// spawnOpencodePlugin Signature A — (executable, args) overload
+//
+// Signature A is the ProcessRunner-compatible overload used by update.ts via
+// { run: spawnOpencodePlugin }. When called as spawnOpencodePlugin("opencode",
+// ["plugin", "spec", "--global", "--force"]), the args array already contains
+// the "plugin" prefix — it is NOT prepended again (unlike Signature B).
+//
+// Signature A also accepts a third options arg { spawn?, env?, stdio? } to
+// enable unit testing with a fake spawn without spawning real processes.
+// ---------------------------------------------------------------------------
+describe("spawnOpencodePlugin Signature A (executable, args)", () => {
+  // Happy path: Signature A returns ProcessResult with correct fields
+  it("returns ProcessResult with exitCode 0 on successful spawn", async () => {
+    const m = await import("./spawn.ts");
+
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => ({
+      status: 0,
+      stdout: "plugin installed ok",
+      stderr: "",
+    });
+
+    const result = await m.spawnOpencodePlugin("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+      "--force",
+    ], { spawn: fakeSpawn });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("plugin installed ok");
+    expect(result.stderr).toBe("");
+    // missing field is part of ProcessResult
+    expect(result).toHaveProperty("missing");
+  });
+
+  // Fixed-argv: Signature A does NOT prepend "plugin" — args already contain it
+  // This is the key difference from Signature B which prepends "plugin" internally.
+  it("passes args directly to spawn without prepending 'plugin'", async () => {
+    const m = await import("./spawn.ts");
+
+    const calls: [string, string[]][] = [];
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async (exec, args) => {
+      calls.push([exec, args]);
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await m.spawnOpencodePlugin("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+      "--force",
+    ], { spawn: fakeSpawn });
+
+    // Signature A passes args directly — no double-prepend
+    expect(calls[0][0]).toBe("opencode");
+    expect(calls[0][1]).toEqual([
+      "plugin",
+      "opencode-code-review",
+      "--global",
+      "--force",
+    ]);
+  });
+
+  // ENOENT: Signature A returns ProcessResult with status=null and ENOENT in stderr
+  it("returns ProcessResult with null status and ENOENT stderr when spawn throws", async () => {
+    const m = await import("./spawn.ts");
+
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => {
+      const err = new Error("ENOENT: opencode not found");
+      (err as NodeJS.ErrnoException).code = "ENOENT";
+      throw err;
+    };
+
+    const result = await m.spawnOpencodePlugin("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ], { spawn: fakeSpawn });
+
+    // Always-resolved contract: check result fields instead of rejection
+    expect(result.status).toBe(null);
+    expect(result.stderr).toMatch(/ENOENT|not found/i);
+    expect(result).toHaveProperty("missing");
+    expect((result as import("./spawn.ts").ProcessResult).missing).toBe(true);
   });
 });
 

@@ -21,6 +21,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockRunInstall = vi.fn<() => Promise<{ status: "wrote" | "skipped"; specifier: string }>>();
 const mockRunUninstall = vi.fn<() => Promise<{ status: "wrote" | "planned" | "noop"; path: string; removed: string[]; purged: string[] }>>();
 const mockRunStatus = vi.fn<() => Promise<{ installed: boolean; path: string; format: "json" | "jsonc"; specifier: string | null; extras: string[] }>>();
+const mockRunUpdate = vi.fn<
+  (
+    opts: { dryRun: boolean; spawn?: import("./spawn.ts").ProcessRunner },
+    fs: import("./config.ts").CliFs,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<{ status: "noop" | "stale"; cachePaths: string[]; instruction: string }>
+>();
+
+const mockRunDoctor = vi.fn<
+  () => { issues: string[]; warnings: string[]; info: string[] }
+>();
+
+// Fake fs for update tests
+const fakeFs = {
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+  mkdir: vi.fn(),
+  rm: vi.fn(),
+  rmdir: vi.fn(),
+  stat: vi.fn(),
+  existsSync: vi.fn(() => false),
+};
 
 vi.mock("./install.ts", () => ({
   runInstall: mockRunInstall,
@@ -32,9 +54,18 @@ vi.mock("./uninstall.ts", () => ({
 
 vi.mock("./status.ts", () => ({
   runStatus: mockRunStatus,
+  runDoctor: mockRunDoctor,
 }));
 
-const { runMain } = await import("./main.ts");
+vi.mock("./update.ts", () => ({
+  runUpdate: mockRunUpdate,
+}));
+
+vi.mock("./real-fs.ts", () => ({
+  createRealFs: () => fakeFs,
+}));
+
+const { runMain, runCli } = await import("./main.ts");
 
 let savedExit: number;
 let logSpy: ReturnType<typeof vi.spyOn>;
@@ -46,6 +77,8 @@ beforeEach(() => {
   mockRunInstall.mockReset();
   mockRunUninstall.mockReset();
   mockRunStatus.mockReset();
+  mockRunUpdate.mockReset();
+  mockRunDoctor.mockReset();
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -190,5 +223,142 @@ describe("runMain (async dispatcher)", () => {
     const r = await runMain(["status"]);
     expect(r.exitCode).toBe(1);
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("malformed JSON"));
+  });
+
+  // Additional CLI-parsing branch coverage
+  it("returns exit 2 when an unknown flag is passed to install", async () => {
+    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    // parseArgs strict mode throws on unknown flags
+    const r = await runMain(["install", "--not-a-real-flag"]);
+    expect(r.exitCode).toBe(2);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("ocr:"));
+  });
+
+  it("returns exit 2 when --version is passed without a value to install", async () => {
+    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    // parseArgs throws when --version is not followed by a value
+    const r = await runMain(["install", "--version"]);
+    expect(r.exitCode).toBe(2);
+    expect(errSpy).toHaveBeenCalled();
+  });
+
+  it("install command with extra positional args routes to install", async () => {
+    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    // Extra positional args after "install" are ignored by parseArgs allowPositionals
+    const r = await runMain(["install", "extra-arg"]);
+    expect(r.command).toBe("install");
+    expect(r.exitCode).toBe(0);
+    expect(mockRunInstall).toHaveBeenCalledTimes(1);
+  });
+
+  it("unknown command with extra positional args returns exit 2", async () => {
+    const r = await runMain(["foobar", "extra-arg"]);
+    expect(r.command).toBeNull();
+    expect(r.exitCode).toBe(2);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unknown command"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runCli — exported bootstrap function (called by the invokedAsMain IIFE)
+// ---------------------------------------------------------------------------
+describe("runCli", () => {
+  // ocr --version (no value) → parseArgs throws → exit 2
+  it("returns 2 when --version is passed without a value", async () => {
+    const exitCode = await runCli(["--version"]);
+    expect(exitCode).toBe(2);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("ocr:"));
+  });
+
+  // ocr bogus-command → unknown command → exit 2
+  it("returns 2 for unknown command", async () => {
+    const exitCode = await runCli(["bogus-command"]);
+    expect(exitCode).toBe(2);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unknown command"));
+  });
+
+  // ocr install → routes to install → exit 0
+  it("returns 0 for install command", async () => {
+    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    const exitCode = await runCli(["install"]);
+    expect(exitCode).toBe(0);
+    expect(mockRunInstall).toHaveBeenCalledTimes(1);
+  });
+
+  // ocr update → update command → exit 0 (no-op dry-run or success)
+  it("returns 0 for update command", async () => {
+    mockRunUpdate.mockResolvedValue({ status: "noop", cachePaths: [], instruction: "" });
+    const exitCode = await runCli(["update"]);
+    expect(exitCode).toBe(0);
+    expect(mockRunUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  // ocr update --dry-run → returns 0
+  it("returns 0 for update --dry-run", async () => {
+    mockRunUpdate.mockResolvedValue({ status: "noop", cachePaths: [], instruction: "" });
+    const exitCode = await runCli(["update", "--dry-run"]);
+    expect(exitCode).toBe(0);
+    const firstCallArgs = mockRunUpdate.mock.calls[0]?.[0] as { dryRun: boolean } | undefined;
+    expect(firstCallArgs?.dryRun).toBe(true);
+  });
+
+  // ocr update (stale result) → returns 0
+  it("returns 0 for update with stale result", async () => {
+    mockRunUpdate.mockResolvedValue({
+      status: "stale",
+      cachePaths: ["/tmp/opencode-cache"],
+      instruction: "",
+    });
+    const exitCode = await runCli(["update"]);
+    expect(exitCode).toBe(0);
+  });
+
+  // ocr --help → help → exit 0
+  it("returns 0 for --help", async () => {
+    const exitCode = await runCli(["--help"]);
+    expect(exitCode).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: ocr"));
+  });
+
+  // runCli returns the exit code set by runMain
+  it("returns the same exit code as runMain for a successful install", async () => {
+    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    const [runMainResult, runCliResult] = await Promise.all([
+      runMain(["install"]),
+      runCli(["install"]),
+    ]);
+    expect(runCliResult).toBe(runMainResult.exitCode);
+  });
+
+  // ocr doctor → doctor case → exit 0 when no issues
+  it("returns 0 for doctor with no issues", async () => {
+    mockRunDoctor.mockReturnValue({ issues: [], warnings: [], info: [] });
+    const exitCode = await runCli(["doctor"]);
+    expect(exitCode).toBe(0);
+    expect(mockRunDoctor).toHaveBeenCalledTimes(1);
+  });
+
+  // ocr doctor → doctor case → exit 0 with warnings only
+  it("returns 0 for doctor with warnings only", async () => {
+    mockRunDoctor.mockReturnValue({
+      issues: [],
+      warnings: ["config is stale"],
+      info: ["opencode version 1.0.0"],
+    });
+    const exitCode = await runCli(["doctor"]);
+    expect(exitCode).toBe(0);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("warnings"));
+  });
+
+  // ocr doctor → doctor case → exit 1 with issues
+  it("returns 1 for doctor with issues", async () => {
+    mockRunDoctor.mockReturnValue({
+      issues: ["opencode not found on PATH"],
+      warnings: [],
+      info: [],
+    });
+    const exitCode = await runCli(["doctor"]);
+    expect(exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("opencode not found"));
   });
 });

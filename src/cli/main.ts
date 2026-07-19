@@ -270,8 +270,27 @@ const invokedAsMain = ((): boolean => {
   }
 })();
 
+/**
+ * CLI bootstrap — called by the IIFE at the bottom of this module when
+ * main.ts is the program entry point. Tests can call this directly with
+ * custom argv to exercise the full dispatch-and-exit path.
+ *
+ * @param argv  argv to pass to runMain (default: process.argv.slice(2))
+ * @returns     the exit code that was or would be set on process.exitCode
+ */
+export async function runCli(argv?: string[]): Promise<number> {
+  try {
+    const result = await runMain(argv ?? process.argv.slice(2));
+    return result.exitCode;
+  } catch (err) {
+    console.error(`ocr: ${(err as Error).message}`);
+    setExit(1);
+    return 1;
+  }
+}
+
 if (invokedAsMain) {
-  runMain(process.argv).catch((err) => {
+  runCli().catch((err) => {
     console.error(`ocr: ${(err as Error).message}`);
     setExit(1);
   });
