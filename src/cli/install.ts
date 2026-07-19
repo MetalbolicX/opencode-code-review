@@ -6,10 +6,6 @@
 // the same version is a no-op. With `--dry-run` the pipeline runs end-to-end
 // but no bytes hit disk.
 //
-// Stale cache entries matching `opencode-code-review*` under
-// `~/.cache/opencode/packages/` are purged during install. For `--dry-run`,
-// the planned purge paths are reported without deleting them.
-//
 // Side effects beyond prints and writes go through the injected `CliFs`
 // so tests can run entirely in-memory with a deterministic filesystem.
 // ---------------------------------------------------------------------------
@@ -23,11 +19,9 @@ import {
   matchesReviewPlugin,
   normalizePlugin,
   PLUGIN_NAME,
-  resolveCachePaths,
   writeAtomically,
 } from "./config.ts";
 import { createRealFs } from "./real-fs.ts";
-import { purgeDirectory } from "./cache.ts";
 
 export interface InstallOptions {
   /** Optional version pin (e.g. `"1.2.3"`, `"latest"`). Omit for bare specifier. */
@@ -47,8 +41,6 @@ export interface InstallResult {
   specifier: string;
   /** Backup path created before the write, or `null` when no backup was needed. */
   backup: string | null;
-  /** Cache paths purged (or planned for purge under `--dry-run`). */
-  purged: string[];
 }
 
 const JSON_INDENT = 2;
@@ -56,9 +48,8 @@ const JSON_INDENT = 2;
 /**
  * Run `ocr install` against the global OpenCode config.
  *
- * Order: load config → normalize → compute cache candidates →
- * noop guard (pure or with stale cache) →
- * backup → atomic write → purge stale cache.
+ * Steps: load → normalize → dedupe (drops existing plugin entries) →
+ * append new specifier → backup → atomic write.
  */
 export const runInstall = (
   opts: InstallOptions = {},
@@ -82,84 +73,35 @@ export const runInstall = (
   const config: Record<string, unknown> = { ...loaded.config };
   const existing = normalizePlugin(config.plugin);
 
-  // Compute stale cache paths to purge (always, not just on dry-run).
-  const purgeCandidates = resolveCachePaths(fs, env);
-
-  // No-op: same effective plugin list as before.
-  const effectiveExisting = [
-    ...dedupePlugins(existing.filter((e) => !matchesReviewPlugin(e))),
-    specifier,
-  ];
-  const isNoop =
-    !opts.dryRun &&
-    JSON.stringify(effectiveExisting) === JSON.stringify(existing);
-
-  // Pure no-op: same effective plugin list AND no stale cache to purge.
-  if (isNoop && purgeCandidates.length === 0) {
-    console.log(`✓ Already installed (${specifier}) at ${loaded.path}`);
-    return { status: "noop", path: loaded.path, specifier, backup: null, purged: [] };
-  }
-
-  // No-op with stale cache — purge cache without rewriting config.
-  if (isNoop && purgeCandidates.length > 0) {
-    const purged: string[] = [];
-    for (const p of purgeCandidates) {
-      try {
-        if (fs.existsSync(p)) {
-          purgeDirectory(fs, p);
-          purged.push(p);
-        }
-      } catch {
-        // best-effort — purge failure is non-fatal
-      }
-    }
-    console.log(`✓ Already installed (${specifier}) at ${loaded.path}`);
-    for (const p of purged) console.log(`  purged: ${p}`);
-    return { status: "noop", path: loaded.path, specifier, backup: null, purged };
-  }
-
   // Keep non-plugin entries; drop all plugin entries so we always append fresh.
   const nonPlugin = existing.filter((entry) => !matchesReviewPlugin(entry));
+  const finalPlugins = [...nonPlugin, specifier];
+
+  // No-op: same effective plugin list as before (handles same-version reinstall).
+  const isNoop = JSON.stringify(finalPlugins) === JSON.stringify(existing);
+
+  if (isNoop) {
+    console.log(`✓ Already installed (${specifier}) at ${loaded.path}`);
+    return { status: "noop", path: loaded.path, specifier, backup: null };
+  }
+
+  // Dedupe non-plugin entries (last occurrence wins) so a hand-edited config
+  // with duplicate plugins is cleaned up on write.
   config.plugin = [...dedupePlugins(nonPlugin), specifier];
 
   if (opts.dryRun) {
     console.log(`[dry-run] Would write to ${loaded.path}:`);
     console.log(JSON.stringify(config, null, JSON_INDENT));
-    if (purgeCandidates.length > 0) {
-      console.log(`[dry-run] Would purge stale cache:`);
-      for (const p of purgeCandidates) console.log(`  ${p}`);
-    }
-    return { status: "planned", path: loaded.path, specifier, backup: null, purged: purgeCandidates };
+    return { status: "planned", path: loaded.path, specifier, backup: null };
   }
 
-  // Write the config BEFORE purging so a broken purge never leaves the config
-  // in a half-migrated state (threat-matrix write-before-purge ordering).
-  let backup: string | null = null;
-  if (loaded.existed) {
-    backup = backupIfWritable(loaded.path, fs);
-  }
+  const backup = backupIfWritable(loaded.path, fs);
   writeAtomically(loaded.path, JSON.stringify(config, null, JSON_INDENT), fs);
-
-  // Purge stale cache entries AFTER config write (best-effort — non-fatal).
-  const purged: string[] = [];
-  for (const p of purgeCandidates) {
-    try {
-      if (fs.existsSync(p)) {
-        purgeDirectory(fs, p);
-        purged.push(p);
-      }
-    } catch {
-      // best-effort — purge failure is non-fatal
-    }
-  }
 
   console.log(`✓ Installed ${specifier}`);
   console.log(`  config: ${loaded.path}`);
   if (backup) console.log(`  backup: ${backup}`);
-  if (purged.length > 0) {
-    for (const p of purged) console.log(`  purged: ${p}`);
-  }
   console.log(`tip: Run \`ocr doctor\` to verify your setup`);
 
-  return { status: "wrote", path: loaded.path, specifier, backup, purged };
+  return { status: "wrote", path: loaded.path, specifier, backup };
 };

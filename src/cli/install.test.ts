@@ -142,6 +142,175 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+// Slice 3 — Config-only RED tests
+// ---------------------------------------------------------------------------
+
+describe("runInstall — config-only (no cache mutations)", () => {
+  // 3.1a: install() makes zero rm/rmdir/unlink calls
+  it("makes zero rm/rmdir/unlink calls during a plain install", () => {
+    const fs = createFakeFs({});
+    const rmdirCalls: string[] = [];
+    const unlinkCalls: string[] = [];
+    const origRmdirSync = fs.rmdirSync.bind(fs);
+    const origUnlinkSync = fs.unlinkSync.bind(fs);
+    fs.rmdirSync = (path: string) => {
+      rmdirCalls.push(path);
+      origRmdirSync(path);
+    };
+    fs.unlinkSync = (path: string) => {
+      unlinkCalls.push(path);
+      origUnlinkSync(path);
+    };
+    runInstall({ version: "2.0.0" }, fs, process.env);
+    expect(rmdirCalls).toEqual([]);
+    expect(unlinkCalls).toEqual([]);
+  });
+
+  // 3.1b: InstallResult has no purged field (runtime check)
+  it("InstallResult has no purged field", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({}, fs, process.env);
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    expect(
+      (result as unknown as Record<string, unknown>).purged,
+    ).toBeUndefined();
+  });
+
+  // 3.3a: noop when specifier already present
+  it("noop when specifier is already present — does not write", () => {
+    const fs = createFakeFs({ plugin: [PLUGIN_NAME] });
+    const before = fs.readFileSync(CONFIG_PATH);
+    const result = runInstall({}, fs, process.env);
+    expect(result.status).toBe("noop");
+    expect(fs.writtenFiles.size).toBe(0);
+    expect(fs.readFileSync(CONFIG_PATH)).toBe(before);
+  });
+
+  // 3.3b: dedupe — multiple entries collapse to one
+  it("dedupes multiple review-plugin entries down to one on write", () => {
+    const fs = createFakeFs({
+      plugin: [PLUGIN_NAME, `${PLUGIN_NAME}@1.0.0`, "other-plugin"],
+    });
+    const result = runInstall({ version: "2.0.0" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    const stored = fs.writtenFiles.get(CONFIG_PATH)!;
+    const parsed = JSON.parse(stored);
+    const reviewEntries = parsed.plugin.filter((e: string) =>
+      e.startsWith(PLUGIN_NAME),
+    );
+    expect(reviewEntries).toHaveLength(1);
+    expect(reviewEntries[0]).toBe(`${PLUGIN_NAME}@2.0.0`);
+  });
+
+  // 3.3c: atomic rename with backup created
+  it("atomic write creates backup then renames temp file into place", () => {
+    const existingContent = JSON.stringify({ plugin: [PLUGIN_NAME] });
+    const store = new Map<string, string>();
+    store.set(CONFIG_PATH, existingContent);
+    const writtenFiles = new Map<string, string>();
+    const copyOps: string[] = [];
+    const renameOps: Array<{ from: string; to: string }> = [];
+
+    const fs = {
+      readFileSync: (path: string): string => {
+        const val = store.get(path);
+        if (val === undefined) throw new Error(`ENOENT: ${path}`);
+        return val;
+      },
+      writeFileSync: (path: string, content: string): void => {
+        store.set(path, content);
+        writtenFiles.set(path, content);
+      },
+      renameSync: (from: string, to: string): void => {
+        renameOps.push({ from, to });
+        const content = store.get(from);
+        if (content !== undefined) {
+          store.delete(from);
+          store.set(to, content);
+        }
+        writtenFiles.set(to, store.get(to)!);
+      },
+      copyFileSync: (_from: string, to: string): void => {
+        copyOps.push(to);
+        store.set(to, existingContent);
+      },
+      unlinkSync: (): void => {
+        throw new Error("unexpected unlinkSync");
+      },
+      mkdirSync: (): void => {},
+      readdirSync: (): string[] => [],
+      existsSync: (path: string): boolean => store.has(path),
+      rmdirSync: (): void => {
+        throw new Error("unexpected rmdirSync");
+      },
+      canWrite: (): boolean => true,
+    } as unknown as CliFs & { writtenFiles: Map<string, string> };
+    (fs as unknown as Record<string, unknown>).writtenFiles = writtenFiles;
+
+    const result = runInstall({ version: "3.0.0" }, fs, process.env);
+    expect(result.status).toBe("wrote");
+    // A backup must have been created via copyFileSync with .bak suffix
+    const bakPath = copyOps.find((k) => k.includes(".bak"));
+    expect(bakPath).toBeDefined();
+    // The backup must contain the original content
+    expect(store.get(bakPath!)).toBe(existingContent);
+    // A rename must have moved a temp file to the final path
+    expect(renameOps.some((op) => op.to === CONFIG_PATH)).toBe(true);
+  });
+
+  // 3.3d: dry-run returns planned without writing
+  it("dry-run returns planned without writing any file", () => {
+    const fs = createFakeFs({});
+    const result = runInstall({ dryRun: true }, fs, process.env);
+    expect(result.status).toBe("planned");
+    expect(fs.writtenFiles.size).toBe(0);
+  });
+
+  // 3.3e: dry-run with specifier present returns noop without writing
+  it("dry-run with specifier already present returns noop without writing", () => {
+    const fs = createFakeFs({ plugin: [PLUGIN_NAME] });
+    const before = fs.readFileSync(CONFIG_PATH);
+    const result = runInstall({ dryRun: true }, fs, process.env);
+    expect(result.status).toBe("noop");
+    expect(fs.writtenFiles.size).toBe(0);
+    expect(fs.readFileSync(CONFIG_PATH)).toBe(before);
+  });
+
+  // 3.3f: malformed JSON aborts without mutation
+  it("malformed JSON throws without writing or renaming any file", () => {
+    const store = new Map<string, string>();
+    store.set(CONFIG_PATH, "{ invalid json");
+    const writtenFiles = new Map<string, string>();
+    const renameOps: Array<{ from: string; to: string }> = [];
+
+    const fs = {
+      readFileSync: (path: string): string => {
+        const val = store.get(path);
+        if (val === undefined) throw new Error(`ENOENT: ${path}`);
+        return val;
+      },
+      writeFileSync: (_path: string, _content: string): void => {
+        throw new Error("writeFileSync must not be called");
+      },
+      renameSync: (from: string, to: string): void => {
+        renameOps.push({ from, to });
+      },
+      copyFileSync: (): void => {},
+      unlinkSync: (): void => {},
+      mkdirSync: (): void => {},
+      readdirSync: (): string[] => [],
+      existsSync: (): boolean => true,
+      rmdirSync: (): void => {},
+      canWrite: (): boolean => true,
+    } as unknown as CliFs;
+
+    expect(() => runInstall({}, fs, process.env)).toThrow("malformed JSON");
+    expect(writtenFiles.size).toBe(0);
+    expect(renameOps).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -154,7 +323,6 @@ describe("runInstall", () => {
     expect(result.specifier).toBe(PLUGIN_NAME);
     // backup is non-null when file already existed
     expect(result.backup).not.toBeNull();
-    expect(result.purged).toEqual([]);
     // Config was written to the store
     const stored = fs.writtenFiles.get(CONFIG_PATH);
     expect(stored).toBeDefined();
@@ -204,18 +372,16 @@ describe("runInstall", () => {
     expect(result.backup).toBeNull();
   });
 
-  // No-op with stale cache — purge cache without rewriting config
-  it("noop with stale cache purges cache but does not write config or create backup", () => {
-    const fs = createFakeFs(
-      { plugin: [PLUGIN_NAME] },
-      [`${PLUGIN_NAME}@1.0.0`, `${PLUGIN_NAME}@2.0.0`],
-    );
+  // No-op with stale cache — returns noop without rewriting config
+  it("noop with stale cache does not write config or create backup", () => {
+    const fs = createFakeFs({ plugin: [PLUGIN_NAME] }, [
+      `${PLUGIN_NAME}@1.0.0`,
+      `${PLUGIN_NAME}@2.0.0`,
+    ]);
     const result = runInstall({}, fs, process.env);
     expect(result.status).toBe("noop");
     expect(result.specifier).toBe(PLUGIN_NAME);
     expect(result.backup).toBeNull();
-    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
-    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@2.0.0`);
     // Config must NOT be rewritten — writtenFiles must not contain CONFIG_PATH
     expect(fs.writtenFiles.has(CONFIG_PATH)).toBe(false);
   });
@@ -229,34 +395,6 @@ describe("runInstall", () => {
     expect(fs.writtenFiles.size).toBe(0);
   });
 
-  // Dry-run with stale cache — reports planned purge targets
-  it("dry-run reports planned cache purge targets", () => {
-    const fs = createFakeFs(
-      { plugin: [PLUGIN_NAME] },
-      [`${PLUGIN_NAME}@1.0.0`],
-    );
-    const logSpy = vi.spyOn(console, "log");
-    const result = runInstall({ dryRun: true }, fs, process.env);
-    expect(result.status).toBe("planned");
-    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Would purge stale cache"),
-    );
-  });
-
-  // Stale cache purge — removes matching cache entries
-  it("purges stale cache entries during install", () => {
-    const fs = createFakeFs(
-      { plugin: [`${PLUGIN_NAME}@1.0.0`] },
-      [`${PLUGIN_NAME}@1.0.0`, `${PLUGIN_NAME}@2.0.0`, "other-plugin"],
-    );
-    const result = runInstall({ version: "3.0.0" }, fs, process.env);
-    expect(result.status).toBe("wrote");
-    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@1.0.0`);
-    expect(result.purged).toContain(`${PACKAGES_DIR}/${PLUGIN_NAME}@2.0.0`);
-    expect(result.purged).not.toContain(`${PACKAGES_DIR}/other-plugin`);
-  });
-
   // Preserves unrelated plugins
   it("preserves unrelated plugin entries during install", () => {
     const fs = createFakeFs({ plugin: ["some-other-plugin", PLUGIN_NAME] });
@@ -266,33 +404,6 @@ describe("runInstall", () => {
     const parsed = JSON.parse(stored);
     expect(parsed.plugin).toContain("some-other-plugin");
     expect(parsed.plugin).toContain(`${PLUGIN_NAME}@2.0.0`);
-  });
-
-  // Backup before write ordering — backup happens before config write
-  // NOTE: this test sets up stale cache entries so rmdir is called.
-  it("creates backup before writing config", () => {
-    const fs = createFakeFs(
-      { plugin: [PLUGIN_NAME] },
-      [`${PLUGIN_NAME}@1.0.0`],
-    );
-    const writeOrder: string[] = [];
-    const origWriteFileSync = fs.writeFileSync.bind(fs);
-    fs.writeFileSync = (path: string, content: string) => {
-      writeOrder.push(`write:${path}`);
-      origWriteFileSync(path, content);
-    };
-    const origRmdirSync = fs.rmdirSync.bind(fs);
-    fs.rmdirSync = (path: string) => {
-      writeOrder.push(`rmdir:${path}`);
-      origRmdirSync(path);
-    };
-    runInstall({ version: "2.0.0" }, fs, process.env);
-    const configWriteIndex = writeOrder.findIndex(
-      (e) => e.startsWith("write:") && e.includes("opencode.json"),
-    );
-    const firstRmdirIndex = writeOrder.findIndex((e) => e.startsWith("rmdir:"));
-    // Config write must come before any purge rmdir
-    expect(configWriteIndex).toBeLessThan(firstRmdirIndex);
   });
 
   // Malformed config — throws without corrupting
@@ -326,7 +437,6 @@ describe("runInstall", () => {
     expect(result.path).toBe(CONFIG_PATH);
     expect(result.specifier).toBe(PLUGIN_NAME);
     expect(typeof result.backup).toBe("string");
-    expect(result.purged).toEqual([]);
   });
 
   // Result shape — with version
@@ -335,7 +445,6 @@ describe("runInstall", () => {
     const result = runInstall({ version: "1.2.3" }, fs, process.env);
     expect(result.status).toBe("wrote");
     expect(result.specifier).toBe(`${PLUGIN_NAME}@1.2.3`);
-    expect(result.purged).toEqual([]);
   });
 
   // Writes to correct path — resolves from HOME
