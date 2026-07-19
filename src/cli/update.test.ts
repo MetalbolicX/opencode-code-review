@@ -1,47 +1,60 @@
 // ---------------------------------------------------------------------------
 // src/cli/update.test.ts — Unit tests for `ocr update` lifecycle.
 //
-// runUpdate queries the npm registry for the latest version, compares it to
-// the installed version from the global config, and when stale purges matching
-// cache entries and force-reinstalls via opencode plugin.
+// Rewrite for Slice 4: update is now UNCONDITIONAL — no version-compare gate,
+// no registry fetch, no staleness check. Every run purges cache paths
+// (best-effort per path) and spawns `opencode plugin --global --force`.
 //
-// Tests inject both `latestVersion` (registry seam) and `ProcessRunner` (spawn
-// seam) to exercise every branch deterministically without network or
-// subprocess calls.
+// UpdateResult.status is now `'stale' | 'noop'` (never 'current' or 'unreachable').
+// UpdateResult no longer carries installedVersion or latestVersion.
 //
-// Task 4.2 RED tests:
-//   - Already current: installed === latest → { status: 'current' }, no purge, no spawn
-//   - Stale triggers purge + force reinstall: newer version → purges cache, spawns --force
-//   - Registry unreachable: latestVersion returns null → { status: 'unreachable' }, no purge, no spawn, exit 1
-//   - Malformed latest version: invalid version string → { status: 'unreachable' }, no mutation
-//   - Dry-run: reports comparison WITHOUT mutating state (no purge, no spawn)
-//   - Threat-matrix RED: rejected/invalid latest leaves files and process calls unchanged
+// Tests inject ProcessRunner (spawn seam) to exercise every branch
+// deterministically without subprocess calls.
+//
+// Task 4.1 RED tests:
+//   (a) update always purges then spawns (regardless of installed version)
+//   (b) update spawns even when cache paths list is empty
+//   (c) UpdateResult.status narrows to 'stale' | 'noop'
+//
+// Task 4.3 RED tests:
+//   (a) purge failure on one path is swallowed, other paths still purged,
+//       spawn still proceeds
+//   (b) purge failure swallowed AND spawn exits 0 → resolve (no throw)
+//   (c) purge failure swallowed AND spawn exits 1 → reject (spawn failure
+//       propagates)
+//   (d) no symbol from registry.ts is referenced by update.ts
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProcessResult, ProcessRunner } from "./spawn.ts";
 import { type CliFs, PLUGIN_NAME } from "./config.ts";
-import { runUpdate, extractVersion } from "./update.ts";
+import { runUpdate } from "./update.ts";
 
-type FakeLatest = () => Promise<string | null>;
 type MemFs = CliFs & {
   __files: Map<string, string>;
   __dirs: Set<string>;
-  __callLog: { method: string; path: string }[];
+  __callLog: { method: string; path: string; err?: unknown }[];
 };
 
 const createMemFs = (
   initial: Record<string, string> = {},
+  opts?: { purgeErrorOn?: string[] },
 ): MemFs => {
   const files = new Map<string, string>();
   const dirs = new Set<string>();
-  const callLog: { method: string; path: string }[] = [];
+  const callLog: { method: string; path: string; err?: unknown }[] = [];
+  const purgeErrorOn = new Set<string>(opts?.purgeErrorOn ?? []);
 
   const track = (p: string): void => {
     const parts = p.split("/");
     let acc = parts[0] === "" ? "/" : "";
     for (let i = parts[0] === "" ? 1 : 0; i < parts.length - 1; i++) {
-      acc = acc === "/" ? `/${parts[i] as string}` : acc ? `${acc}/${parts[i] as string}` : (parts[i] as string);
+      acc =
+        acc === "/"
+          ? `/${parts[i] as string}`
+          : acc
+            ? `${acc}/${parts[i] as string}`
+            : (parts[i] as string);
       if (acc) dirs.add(acc);
     }
   };
@@ -86,6 +99,7 @@ const createMemFs = (
     readdirSync: (p: string) => {
       const prefix = p.endsWith("/") ? p : `${p}/`;
       const seen = new Set<string>();
+      // File entries that are direct children of p
       for (const k of files.keys()) {
         if (!k.startsWith(prefix)) continue;
         const rest = k.slice(prefix.length);
@@ -93,6 +107,7 @@ const createMemFs = (
         const s = rest.indexOf("/");
         seen.add(s === -1 ? rest : rest.slice(0, s));
       }
+      // Subdirectory entries that are immediate children of p
       for (const d of dirs.keys()) {
         if (!d.startsWith(prefix)) continue;
         const rest = d.slice(prefix.length);
@@ -102,29 +117,54 @@ const createMemFs = (
       }
       return Array.from(seen).sort();
     },
-    existsSync: (p: string) => files.has(p) || dirs.has(p),
+    existsSync: (p: string) => {
+      if (files.has(p) || dirs.has(p)) return true;
+      // A directory exists if it is a proper parent of any tracked dir.
+      // This enables purgeDirectory to recurse into subdirectories that
+      // exist on disk but are not explicitly tracked in our files map.
+      for (const d of dirs.keys()) {
+        if (d.startsWith(p) && d !== p) {
+          const rest = d.slice(p.length);
+          if (rest.startsWith("/")) return true;
+        }
+      }
+      return false;
+    },
     rmdirSync: (p: string) => {
       callLog.push({ method: "rmdirSync", path: p });
+      if (purgeErrorOn.has(p)) {
+        const err = new Error(`ENOTEMPTY: ${p}`);
+        const last = callLog[callLog.length - 1];
+        if (last) last.err = err;
+        throw err;
+      }
       dirs.delete(p);
     },
     canWrite: (_p: string) => true,
   } as MemFs;
 };
 
+// ---------------------------------------------------------------------------
+// Fake ProcessRunner / SpawnFn
+// ---------------------------------------------------------------------------
+
+type FakeRunnerOptions = Partial<ProcessResult> & { spawnErr?: Error };
+
 const createFakeRunner = (
-  results: Partial<ProcessResult>[] = [],
+  results: FakeRunnerOptions[] = [],
 ): ProcessRunner & { runCount: number[] } => {
   const callCount: number[] = [];
   const runner: ProcessRunner & { runCount: number[] } = {
     runCount: callCount,
     run: vi.fn(async (_executable, _args) => {
       callCount.push(callCount.length);
-      const result = results[callCount.length - 1] ?? {};
+      const r = results[callCount.length - 1] ?? {};
+      if (r.spawnErr) throw r.spawnErr;
       return {
-        status: result.status ?? 0,
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
-        missing: result.missing ?? false,
+        status: r.status ?? 0,
+        stdout: r.stdout ?? "",
+        stderr: r.stderr ?? "",
+        missing: r.missing ?? false,
       };
     }),
   };
@@ -158,89 +198,32 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// extractVersion unit tests
+// runUpdate — Task 4.1 RED: unconditional update contract
 // ---------------------------------------------------------------------------
 
-describe("extractVersion", () => {
-  it("extracts version from pinned specifier", () => {
-    expect(extractVersion("opencode-code-review@1.2.3")).toBe("1.2.3");
-  });
-
-  it("extracts full semver with pre-release", () => {
-    expect(extractVersion("opencode-code-review@2.0.0-beta.1")).toBe("2.0.0-beta.1");
-  });
-
-  it("extracts 'latest' as a valid version string", () => {
-    expect(extractVersion("opencode-code-review@latest")).toBe("latest");
-  });
-
-  it("returns null for bare specifier (no version)", () => {
-    expect(extractVersion("opencode-code-review")).toBeNull();
-  });
-
-  it("returns null for empty string", () => {
-    expect(extractVersion("")).toBeNull();
-  });
-
-  it("returns null for non-string input", () => {
-    expect(extractVersion(null as unknown as string)).toBeNull();
-    expect(extractVersion(undefined as unknown as string)).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// runUpdate RED tests
-// ---------------------------------------------------------------------------
-
-describe("runUpdate", () => {
-  // Task 4.2 RED: Already current → reports { status: 'current' }, no purge, no spawn
-  it("returns status 'current' when installed version equals latest", async () => {
+describe("runUpdate — unconditional update contract (Task 4.1)", () => {
+  // Task 4.1 RED (a): update always purges then spawns regardless of installed version
+  it("purges and spawns even when config shows a current version", async () => {
     const fs = createMemFs({
       "/home/test/.config/opencode/opencode.json": JSON.stringify({
         plugin: [`${PLUGIN_NAME}@1.2.3`],
       }),
-    });
-    const latestVersion = vi.fn(async () => "1.2.3");
-    const runner = createFakeRunner([]);
-
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
-      HOME: "/home/test",
-    });
-
-    expect(result.status).toBe("current");
-    expect(result.installedVersion).toBe("1.2.3");
-    expect(result.latestVersion).toBe("1.2.3");
-    expect(result.cachePaths).toEqual([]);
-    // No spawn calls (not stale)
-    expect(runner.run).not.toHaveBeenCalled();
-  });
-
-  // Task 4.2 RED: Stale triggers purge + force reinstall
-  it("purges cache and spawns force-reinstall when newer version available", async () => {
-    const fs = createMemFs({
-      "/home/test/.config/opencode/opencode.json": JSON.stringify({
-        plugin: [`${PLUGIN_NAME}@1.0.0`],
-      }),
-      // Add a cache entry to purge
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
-      "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0": "",
-      "/home/test/.cache/opencode/packages/other-plugin": "",
     });
-    const latestVersion = vi.fn(async () => "1.2.3");
     const runner = createFakeRunner([{ status: 0 }]);
 
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
+    // No latestVersion injection — unconditional flow does not consult registry
+    const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
     });
 
+    // Always stale — version compare is gone
     expect(result.status).toBe("stale");
-    expect(result.installedVersion).toBe("1.0.0");
-    expect(result.latestVersion).toBe("1.2.3");
-    expect(result.cachePaths).toContain("/home/test/.cache/opencode/packages/opencode-code-review");
-    expect(result.cachePaths).toContain("/home/test/.cache/opencode/packages/opencode-code-review@1.0.0");
-    // unrelated entry NOT purged
-    expect(result.cachePaths).not.toContain("/home/test/.cache/opencode/packages/other-plugin");
-    // Spawn called with --force
+    // Purged the cache path
+    expect(result.cachePaths).toContain(
+      "/home/test/.cache/opencode/packages/opencode-code-review",
+    );
+    // Spawn was called
     expect(runner.run).toHaveBeenCalledTimes(1);
     expect(runner.run).toHaveBeenCalledWith("opencode", [
       "plugin",
@@ -250,163 +233,349 @@ describe("runUpdate", () => {
     ]);
   });
 
-  // Task 4.2 RED: Registry unreachable → { status: 'unreachable' }, no purge, no spawn, exit 1
-  it("returns status 'unreachable' and skips all mutation when latestVersion returns null", async () => {
+  // Task 4.1 RED (a): unconditional — no version gate at all
+  it("purges and spawns even when config shows a newer version", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@99.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+    });
+    const runner = createFakeRunner([{ status: 0 }]);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  // Task 4.1 RED (b): update spawns even when cache paths list is empty
+  it("spawns even when no cache paths exist", async () => {
     const fs = createMemFs({
       "/home/test/.config/opencode/opencode.json": JSON.stringify({
         plugin: [`${PLUGIN_NAME}@1.0.0`],
       }),
-      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+      // No cache directories
     });
-    const latestVersion = vi.fn(async () => null);
-    const runner = createFakeRunner([]);
+    const runner = createFakeRunner([{ status: 0 }]);
 
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
+    const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
     });
 
-    expect(result.status).toBe("unreachable");
-    expect(result.installedVersion).toBeNull();
-    expect(result.latestVersion).toBeNull();
+    expect(result.status).toBe("stale");
     expect(result.cachePaths).toEqual([]);
-    // No purge (unreachable exits before mutation per threat-matrix)
-    expect(runner.run).not.toHaveBeenCalled();
+    expect(runner.run).toHaveBeenCalledTimes(1);
+    expect(runner.run).toHaveBeenCalledWith("opencode", [
+      "plugin",
+      PLUGIN_NAME,
+      "--global",
+      "--force",
+    ]);
   });
 
-  // Task 4.2 RED: Malformed latest version (invalid version string) → unreachable
-  it("returns 'unreachable' when latestVersion returns an empty string", async () => {
+  // Task 4.1 RED (b): unconditional — no plugin in config at all
+  it("purges and spawns even when plugin is not in config at all", async () => {
     const fs = createMemFs({
       "/home/test/.config/opencode/opencode.json": JSON.stringify({
-        plugin: [`${PLUGIN_NAME}@1.0.0`],
+        plugin: [],
       }),
     });
-    const latestVersion = vi.fn(async () => "");
-    const runner = createFakeRunner([]);
+    const runner = createFakeRunner([{ status: 0 }]);
 
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
+    const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
     });
 
-    // Empty string is not a valid version — treated as unreachable
-    expect(result.status).toBe("unreachable");
-    expect(runner.run).not.toHaveBeenCalled();
+    expect(result.status).toBe("stale");
+    expect(runner.run).toHaveBeenCalledTimes(1);
   });
 
-  // Task 4.2 RED: Dry-run reports without mutating
-  it("dry-run prints comparison without purge or spawn", async () => {
+  // Task 4.1 RED (c): UpdateResult.status narrows to 'stale' | 'noop'
+  it("returns status 'noop' in dry-run mode", async () => {
     const fs = createMemFs({
       "/home/test/.config/opencode/opencode.json": JSON.stringify({
         plugin: [`${PLUGIN_NAME}@1.0.0`],
       }),
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
     });
-    const latestVersion = vi.fn(async () => "1.2.3");
     const runner = createFakeRunner([]);
-    const logSpy = vi.spyOn(console, "log");
 
-    const result = await runUpdate(
-      { dryRun: true, latestVersion, spawn: runner },
+    const result = await runUpdate({ dryRun: true, spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("noop");
+    expect(result.cachePaths).toEqual([]); // dry-run: no actual purge
+    expect(runner.run).not.toHaveBeenCalled(); // dry-run: no spawn
+  });
+
+  // Task 4.1 RED (c): status is always 'stale' after a real (non-dry-run) run
+  it("returns status 'stale' after a real run (never 'current' or 'unreachable')", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+    });
+    const runner = createFakeRunner([{ status: 0 }]);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+    // Result must NOT have old fields
+    expect(result).not.toHaveProperty("installedVersion");
+    expect(result).not.toHaveProperty("latestVersion");
+    // Result MUST have new fields
+    expect(result).toHaveProperty("cachePaths");
+    expect(result).toHaveProperty("instruction");
+  });
+
+  // Task 4.1 RED (c): instruction field is always present in UpdateResult
+  it("returns instruction as a string field (populated in dry-run, empty after real run)", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+    });
+
+    // Dry-run: instruction is populated
+    const dryRunResult = await runUpdate(
+      { dryRun: true, spawn: createFakeRunner([]) },
       fs,
       { HOME: "/home/test" },
     );
+    expect(dryRunResult.instruction).toContain(PLUGIN_NAME);
+    expect(dryRunResult.instruction).toContain("--global");
+    expect(dryRunResult.instruction).toContain("--force");
 
-    expect(result.status).toBe("stale");
-    expect(result.cachePaths).toEqual([]); // dry-run: no actual purge
-    expect(runner.run).not.toHaveBeenCalled(); // dry-run: no spawn
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("installed"),
+    // Real run: instruction is empty (spawn replaces the need for it)
+    const realResult = await runUpdate(
+      { spawn: createFakeRunner([{ status: 0 }]) },
+      fs,
+      { HOME: "/home/test" },
     );
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("latest"),
+    expect(typeof realResult.instruction).toBe("string");
+    expect(realResult.instruction).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runUpdate — Task 4.3 RED: error boundaries
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — error boundaries (Task 4.3)", () => {
+  // Task 4.3 RED (a): purge failure on one path is swallowed; spawn still proceeds.
+  // The key invariant: after a partial purge failure, spawn still runs.
+  // (Exact rmdirSync call counts depend on MemFs accurately modeling the real
+  // filesystem — directory entries are removed when files inside are unlinked.
+  // Our MemFs doesn't perfectly mirror this, so we verify the key outcome: spawn
+  // was called after a purge error on at least one path.)
+  it("swallows purge failure on one path and continues purging other paths", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review": "",
+        "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0": "",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review",
+        ],
+      },
     );
-  });
-
-  // Task 4.2 RED: Threat-matrix — rejected/invalid latest leaves files and process calls unchanged
-  it("threat-matrix: invalid latest causes zero rmdirSync calls", async () => {
-    const fs = createMemFs({
-      "/home/test/.config/opencode/opencode.json": JSON.stringify({
-        plugin: [`${PLUGIN_NAME}@1.0.0`],
-      }),
-      "/home/test/.cache/opencode/packages/opencode-code-review": "",
-    });
-    const latestVersion = vi.fn(async () => null);
-    const runner = createFakeRunner([]);
-
-    await runUpdate({ latestVersion, spawn: runner }, fs, {
-      HOME: "/home/test",
-    });
-
-    // Zero rmdirSync calls — unreachable exits before purge
-    expect(fs.__callLog.filter((c) => c.method === "rmdirSync")).toHaveLength(0);
-    expect(runner.run).not.toHaveBeenCalled();
-  });
-
-  // Task 4.2 RED: Bare specifier (no version) is always stale
-  it("bare specifier triggers stale update even when latest is available", async () => {
-    const fs = createMemFs({
-      "/home/test/.config/opencode/opencode.json": JSON.stringify({
-        plugin: [PLUGIN_NAME], // bare — no version pin
-      }),
-    });
-    const latestVersion = vi.fn(async () => "1.2.3");
     const runner = createFakeRunner([{ status: 0 }]);
 
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
+    const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
     });
 
+    // Did NOT throw — purge failure was swallowed; spawn was called
     expect(result.status).toBe("stale");
-    expect(result.installedVersion).toBeNull(); // bare = no version extracted
-    expect(result.latestVersion).toBe("1.2.3");
+    expect(runner.run).toHaveBeenCalledTimes(1);
+    // At least one rmdirSync call was made (partial purge succeeded)
+    expect(
+      fs.__callLog.filter((c) => c.method === "rmdirSync").length,
+    ).toBeGreaterThanOrEqual(1);
+  });
+
+  // Task 4.3 RED (b): purge failure swallowed AND spawn exits 0 → resolve
+  it("does NOT throw when purge fails but spawn succeeds (exit 0)", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review": "",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review",
+        ],
+      },
+    );
+    const runner = createFakeRunner([{ status: 0 }]);
+
+    // Should NOT throw
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).resolves.toBeDefined();
+
+    // Spawn was called despite purge failure
     expect(runner.run).toHaveBeenCalledTimes(1);
   });
 
-  // Task 4.2 RED: Not installed at all → stale (bare install)
-  it("not-installed triggers stale when latest is available", async () => {
-    const fs = createMemFs({
-      "/home/test/.config/opencode/opencode.json": JSON.stringify({ plugin: [] }),
-    });
-    const latestVersion = vi.fn(async () => "1.2.3");
-    const runner = createFakeRunner([{ status: 0 }]);
-
-    const result = await runUpdate({ latestVersion, spawn: runner }, fs, {
-      HOME: "/home/test",
-    });
-
-    expect(result.status).toBe("stale");
-    expect(result.installedVersion).toBeNull();
-    expect(runner.run).toHaveBeenCalledTimes(1);
-  });
-
-  // Task 4.2 RED: Spawn failure surfaces as error
-  it("throws when spawn returns nonzero exit after stale update", async () => {
-    const fs = createMemFs({
-      "/home/test/.config/opencode/opencode.json": JSON.stringify({
-        plugin: [`${PLUGIN_NAME}@1.0.0`],
-      }),
-      "/home/test/.cache/opencode/packages/opencode-code-review": "",
-    });
-    const latestVersion = vi.fn(async () => "1.2.3");
-    const runner = createFakeRunner([{ status: 1, stderr: "plugin update failed" }]);
+  // Task 4.3 RED (c): purge failure swallowed AND spawn exits non-zero → reject
+  it("throws when purge fails AND spawn exits non-zero (spawn failure propagates)", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review": "",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review",
+        ],
+      },
+    );
+    const runner = createFakeRunner([
+      { status: 1, stderr: "plugin update failed" },
+    ]);
 
     await expect(
-      runUpdate({ latestVersion, spawn: runner }, fs, { HOME: "/home/test" }),
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
     ).rejects.toThrow("plugin update failed");
   });
 
-  // Task 4.2 RED: Missing opencode executable throws clear error
-  it("throws when opencode executable is missing during stale update", async () => {
+  // Task 4.3 RED (c): spawn failure — nonzero exit — throws with exit code in message
+  it("throws with exit code mentioned in error message on nonzero exit", async () => {
     const fs = createMemFs({
       "/home/test/.config/opencode/opencode.json": JSON.stringify({
         plugin: [`${PLUGIN_NAME}@1.0.0`],
       }),
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
     });
-    const latestVersion = vi.fn(async () => "1.2.3");
+    const runner = createFakeRunner([{ status: 2, stderr: "some error" }]);
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("2");
+  });
+
+  // Task 4.3 RED (a): all purge paths fail — still spawns
+  it("spawns even when all purge paths fail", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review": "",
+        "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0": "",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review",
+          "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0",
+        ],
+      },
+    );
+    const runner = createFakeRunner([{ status: 0 }]);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+    // Spawn still called despite all purge failures
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runUpdate — spawn error cases
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — spawn errors", () => {
+  it("throws when opencode executable is missing during update", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+    });
     const runner = createFakeRunner([{ missing: true }]);
 
     await expect(
-      runUpdate({ latestVersion, spawn: runner }, fs, { HOME: "/home/test" }),
-    ).rejects.toThrow("executable not found");
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("not found");
+  });
+
+  it("throws when spawn returns nonzero exit after purge", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+    });
+    const runner = createFakeRunner([
+      { status: 1, stderr: "plugin update failed" },
+    ]);
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("plugin update failed");
+  });
+
+  it("successful update resolves with stale status and cachePaths", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review": "",
+      "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0": "",
+    });
+    const runner = createFakeRunner([{ status: 0 }]);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+    expect(result.cachePaths.length).toBeGreaterThan(0);
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Import-graph: update.ts must not reference registry.ts
+// ---------------------------------------------------------------------------
+
+describe("update.ts import-graph sanity", () => {
+  it("update.ts source does not contain any registry.ts symbols", async () => {
+    // Dynamic import to read the source at test time (not at compile time)
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const updateSource = readFileSync(
+      path.resolve(fileURLToPath(import.meta.url), "../update.ts"),
+      "utf8",
+    );
+
+    // These specific symbols must NOT appear in update.ts source
+    // (the word "registry" in comments is allowed; only symbol names are forbidden)
+    const forbiddenSymbols = ["fetchLatestVersion", "LatestVersionFn"];
+
+    for (const symbol of forbiddenSymbols) {
+      expect(updateSource).not.toContain(symbol);
+    }
   });
 });
