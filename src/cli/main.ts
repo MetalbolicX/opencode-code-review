@@ -117,11 +117,6 @@ export interface MainOptions {
    * instead of the real `opencode plugin` spawn.
    */
   spawn?: ProcessRunner;
-  /**
-   * Injectable latest-version lookup for update. When provided, update uses
-   * it instead of the live npm registry query.
-   */
-  latestVersion?: () => Promise<string | null>;
 }
 
 /**
@@ -219,7 +214,6 @@ export const runMain = async (
         const result = await runUpdate(
           {
             dryRun,
-            latestVersion: opts.latestVersion,
             spawn: opts.spawn,
           },
           createRealFs(),
@@ -227,35 +221,20 @@ export const runMain = async (
         );
 
         switch (result.status) {
-          case "current":
-            console.log(
-              `Already up to date: opencode-code-review@${result.latestVersion}`,
-            );
+          case "noop":
+            // dry-run output is printed inside runUpdate; summary line here
+            console.log(`Update available — run without --dry-run to install.`);
             return { command, exitCode: 0 };
           case "stale":
-            if (dryRun) {
-              // dry-run output is printed inside runUpdate; summary line here
-              console.log(`Update available — run without --dry-run to install.`);
-            } else {
-              console.log(
-                `Updated to opencode-code-review@${result.latestVersion}`,
-              );
-              if (result.cachePaths.length > 0) {
-                for (const p of result.cachePaths) {
-                  console.log(`  purged: ${p}`);
-                }
+            console.log(`Updated to opencode-code-review`);
+            if (result.cachePaths.length > 0) {
+              for (const p of result.cachePaths) {
+                console.log(`  purged: ${p}`);
               }
             }
             return { command, exitCode: 0 };
-          case "unreachable":
-            console.error(
-              `ocr: registry unreachable — could not check for updates.\n` +
-                `  Check your network connection and try again.`,
-            );
-            setExit(1);
-            return { command, exitCode: 1 };
           default: {
-            // Exhaustive: UpdateStatus is "stale" | "current" | "unreachable"
+            // Exhaustive: UpdateStatus is "stale" | "noop"
             const _exhaustive: never = result.status;
             return _exhaustive;
           }
