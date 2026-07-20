@@ -281,15 +281,13 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
 describe("spawnOpencodePlugin Signature A (executable, args)", () => {
   // Happy path: Signature A returns ProcessResult with correct fields
   it("returns ProcessResult with exitCode 0 on successful spawn", async () => {
-    const m = await import("./spawn.ts");
-
     const fakeSpawn: import("./spawn.ts").SpawnFn = async () => ({
       status: 0,
       stdout: "plugin installed ok",
       stderr: "",
     });
 
-    const result = await m.spawnOpencodePlugin("opencode", [
+    const result = await spawnOpencodePlugin("opencode", [
       "plugin",
       "opencode-code-review",
       "--global",
@@ -306,15 +304,13 @@ describe("spawnOpencodePlugin Signature A (executable, args)", () => {
   // Fixed-argv: Signature A does NOT prepend "plugin" — args already contain it
   // This is the key difference from Signature B which prepends "plugin" internally.
   it("passes args directly to spawn without prepending 'plugin'", async () => {
-    const m = await import("./spawn.ts");
-
     const calls: [string, string[]][] = [];
     const fakeSpawn: import("./spawn.ts").SpawnFn = async (exec, args) => {
       calls.push([exec, args]);
       return { status: 0, stdout: "", stderr: "" };
     };
 
-    await m.spawnOpencodePlugin("opencode", [
+    await spawnOpencodePlugin("opencode", [
       "plugin",
       "opencode-code-review",
       "--global",
@@ -333,15 +329,13 @@ describe("spawnOpencodePlugin Signature A (executable, args)", () => {
 
   // ENOENT: Signature A returns ProcessResult with status=null and ENOENT in stderr
   it("returns ProcessResult with null status and ENOENT stderr when spawn throws", async () => {
-    const m = await import("./spawn.ts");
-
     const fakeSpawn: import("./spawn.ts").SpawnFn = async () => {
       const err = new Error("ENOENT: opencode not found");
       (err as NodeJS.ErrnoException).code = "ENOENT";
       throw err;
     };
 
-    const result = await m.spawnOpencodePlugin("opencode", [
+    const result = await spawnOpencodePlugin("opencode", [
       "plugin",
       "opencode-code-review",
       "--global",

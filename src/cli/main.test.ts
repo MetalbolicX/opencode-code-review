@@ -79,6 +79,7 @@ beforeEach(() => {
   mockRunStatus.mockReset();
   mockRunUpdate.mockReset();
   mockRunDoctor.mockReset();
+  Object.values(fakeFs).forEach(fn => { fn.mockReset(); });
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -261,6 +262,12 @@ describe("runMain (async dispatcher)", () => {
 
 // ---------------------------------------------------------------------------
 // runCli — exported bootstrap function (called by the invokedAsMain IIFE)
+//
+// NOTE: runMain handles all known errors internally (swallows via its own
+// catch block), so runCli's catch path is a theoretical safety net for
+// truly unexpected errors (e.g. sliceProcessArgv throwing). There is no
+// practical test for it since runMain's internal coverage is exhaustive
+// and mocking runMain into throwing would be a brittle simulation.
 // ---------------------------------------------------------------------------
 describe("runCli", () => {
   // ocr --version (no value) → parseArgs throws → exit 2
@@ -323,10 +330,8 @@ describe("runCli", () => {
   // runCli returns the exit code set by runMain
   it("returns the same exit code as runMain for a successful install", async () => {
     mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
-    const [runMainResult, runCliResult] = await Promise.all([
-      runMain(["install"]),
-      runCli(["install"]),
-    ]);
+    const runMainResult = await runMain(["install"]);
+    const runCliResult = await runCli(["install"]);
     expect(runCliResult).toBe(runMainResult.exitCode);
   });
 

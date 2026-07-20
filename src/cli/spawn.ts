@@ -84,12 +84,10 @@ export interface SpawnOpencodePluginOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Default `SpawnFn` — async `child_process.spawn` with a hard 30-second
- * SIGKILL timer.
- *
- * Uses `spawn` (async, non-blocking) so the Node.js event loop is NOT
- * blocked. A separate kill timer fires after 30 s to ensure the opencode
- * CLI never hangs the parent process indefinitely.
+ * Default process spawner used by spawnOpencodePlugin.
+ * Executes a command with the given arguments via child_process.spawn
+ * with shell: false, resolving with { status, stdout, stderr } on any
+ * outcome (success, error, timeout).
  */
 export const defaultSpawn: SpawnFn = async (
   command,

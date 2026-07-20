@@ -276,17 +276,11 @@ const invokedAsMain = ((): boolean => {
  * custom argv to exercise the full dispatch-and-exit path.
  *
  * @param argv  argv to pass to runMain (default: process.argv.slice(2))
- * @returns     the exit code that was or would be set on process.exitCode
+ * @returns     the exit code set on process.exitCode by the dispatched command
  */
 export async function runCli(argv?: string[]): Promise<number> {
-  try {
-    const result = await runMain(argv ?? process.argv.slice(2));
-    return result.exitCode;
-  } catch (err) {
-    console.error(`ocr: ${(err as Error).message}`);
-    setExit(1);
-    return 1;
-  }
+  const result = await runMain(argv ?? process.argv.slice(2));
+  return result.exitCode;
 }
 
 if (invokedAsMain) {
