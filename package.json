@@ -19,7 +19,13 @@
     "ocr": "./dist/cli.mjs"
   },
   "files": [
-    "dist"
+    "dist/cli.mjs",
+    "dist/cli.mjs.map",
+    "dist/plugin.mjs",
+    "dist/plugin.mjs.map",
+    "dist/rolldown-runtime-*.js",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "rm -rf dist && rolldown -c && tsc -p tsconfig.build.json",
