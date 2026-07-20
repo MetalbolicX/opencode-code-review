@@ -14,11 +14,14 @@ An automatic code review plugin for [OpenCode](https://opencode.ai) CLI. Automat
 
 ## Installation
 
-### CLI installer (recommended)
+### Global install (recommended)
+
+The CLI installer registers the plugin in your global OpenCode config and
+keeps the package cache in sync.
 
 ```bash
 npx opencode-code-review@latest install   # Register in global OpenCode config
-npx opencode-code-review@latest update     # Check for and apply updates
+npx opencode-code-review@latest update     # Purge cache + reinstall latest
 npx opencode-code-review@latest status     # Show current install status
 npx opencode-code-review@latest doctor     # Run diagnostic checks
 ```
@@ -28,22 +31,28 @@ npx opencode-code-review@latest doctor     # Run diagnostic checks
 A backup is created before writing. Re-running with the same version is a no-op
 that still purges stale cache entries.
 
-### Local plugin (recommended)
+After install, **restart OpenCode** so the new plugin entries are loaded —
+OpenCode does not hot-reload config.
 
-Copy or symlink into your OpenCode plugins directory:
+### Local development (dogfooding only)
+
+If you are working on the plugin itself, you can symlink the raw TypeScript
+source into your project's OpenCode plugins directory instead of going through
+the bundled distribution:
 
 ```bash
 # Project-level
 mkdir -p .opencode/plugins
 ln -s /path/to/opencode-code-review/src/index.ts .opencode/plugins/opencode-code-review.ts
-
-# Or global
-ln -s /path/to/opencode-code-review/src/index.ts ~/.config/opencode/plugins/opencode-code-review.ts
 ```
+
+This path bypasses the build step and runs the source directly. It is **not**
+recommended for normal use — it is only useful when iterating on the plugin
+itself. End users should use the global install above.
 
 ### npm
 
-Add to your `opencode.json`:
+If you prefer to wire the package in by hand, add it to your `opencode.json`:
 
 ```json
 {
@@ -51,25 +60,41 @@ Add to your `opencode.json`:
 }
 ```
 
-Or install directly:
-
-```bash
-npm install -g opencode-code-review
-```
+The `npx opencode-code-review@latest install` command from the previous section
+is equivalent to this, plus the cache purge. Prefer the CLI installer.
 
 ## Development
 
 Requires Node.js 18+ and pnpm.
 
 ```bash
-pnpm install          # Install dependencies
-pnpm typecheck       # Type-check TypeScript
-pnpm lint            # Lint with Biome
-pnpm build           # Compile to dist/
-pnpm verify          # Run all checks (typecheck, lint, build, test)
+pnpm install              # Install dependencies
+pnpm typecheck            # Type-check TypeScript
+pnpm lint                 # Lint with Biome
+pnpm build                # Compile to dist/
+pnpm test                 # Run unit tests
+pnpm verify:install       # Assert global install parity (requires `ocr update` first)
+pnpm verify               # Run all checks (typecheck, lint, build, test, verify:install)
 ```
 
+`pnpm verify:install` proves that the bundled plugin in `dist/` registers the
+same agents, commands, and tools as the local TypeScript source. It catches any
+regression in the bundle shape before `npm publish`.
+
 ## Usage
+
+### Namespace
+
+This plugin registers the `ocr-review` namespace (not `review`) to avoid
+collision with OpenCode's built-in `review` agent and command.
+
+- Slash commands: `/ocr-review`, `/ocr-review:auto`
+- Tab-switchable agent: `ocr-review`
+- Sub-agents (when `parallel: true`): `ocr-review:fixer`, `ocr-review:dim-{code-quality,security,performance,testing,documentation}`
+- Tools: `review_changes`, `toggle_auto_review`
+
+If you type `/review` or look for the `review` agent, you will see OpenCode's
+built-in — not this plugin. Use the `ocr-review` names above.
 
 ### Slash Command
 
