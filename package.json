@@ -35,7 +35,8 @@
     "test:watch": "vitest",
     "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test && pnpm verify:install",
     "verify:install": "node scripts/verify-install.mjs",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "postinstall": "node dist/cli.mjs install --yes 2>/dev/null || true"
   },
   "keywords": [
     "opencode",
