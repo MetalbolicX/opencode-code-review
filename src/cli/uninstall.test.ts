@@ -189,7 +189,9 @@ describe("runUninstall", () => {
     expect(rmdirCalls.length).toBeGreaterThanOrEqual(1);
     // Verify the call log contains the plugin config path attempt.
     const allRmdirPaths = rmdirCalls.map((c) => c.path);
-    expect(allRmdirPaths.some((p) => p.includes("opencode-code-review"))).toBe(true);
+    expect(allRmdirPaths.some((p) => p.includes("opencode-code-review"))).toBe(
+      true,
+    );
     // With best-effort, paths that fail don't throw but also don't get added to purged.
     // Since neither path exists in the mock's dirs, purged may be empty.
     expect(r.purged.length).toBeGreaterThanOrEqual(0);
@@ -228,7 +230,8 @@ describe("runUninstall", () => {
     const packagesBase = "/home/test/.cache/opencode/packages";
     // Inject two entries: one matching, one unrelated.
     fs.readdirSync = (p: string) => {
-      if (p === packagesBase) return [`${PLUGIN_NAME}@1.0.0`, "other-plugin", `${PLUGIN_NAME}@2.0.0`];
+      if (p === packagesBase)
+        return [`${PLUGIN_NAME}@1.0.0`, "other-plugin", `${PLUGIN_NAME}@2.0.0`];
       return [];
     };
     const r = runUninstall({ purge: true }, fs);

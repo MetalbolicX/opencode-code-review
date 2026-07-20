@@ -179,9 +179,9 @@ describe("parallel ocr-review:dim-* rule threading", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
-      "NEVER_USE_DEPRECATED_API",
-    );
+    expect(
+      openCodeConfig.agent["ocr-review:dim-code-quality"].prompt,
+    ).toContain("NEVER_USE_DEPRECATED_API");
   });
 });
 
@@ -207,7 +207,9 @@ describe("custom_rules threading into dimension prompts", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
+    expect(
+      openCodeConfig.agent["ocr-review:dim-code-quality"].prompt,
+    ).toContain(
       "All API endpoints must implement retry logic with exponential backoff",
     );
   });
@@ -234,12 +236,12 @@ describe("custom_rules threading into dimension prompts", () => {
     const openCodeConfig: Record<string, any> = {};
     result.config?.(openCodeConfig);
 
-    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
-      "Rule one: no console.log in production",
-    );
-    expect(openCodeConfig.agent["ocr-review:dim-code-quality"].prompt).toContain(
-      "Rule two: all functions must have JSDoc",
-    );
+    expect(
+      openCodeConfig.agent["ocr-review:dim-code-quality"].prompt,
+    ).toContain("Rule one: no console.log in production");
+    expect(
+      openCodeConfig.agent["ocr-review:dim-code-quality"].prompt,
+    ).toContain("Rule two: all functions must have JSDoc");
   });
 });
 

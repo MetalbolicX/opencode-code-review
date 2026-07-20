@@ -152,16 +152,25 @@ export type SpawnFn = (
   cmd: string,
   args?: ReadonlyArray<string> | object,
   _opts?: object,
-) => { status: number | null; stdout: string; stderr: string; error?: { code: string } };
+) => {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: { code: string };
+};
 
-const makeSpawnFn = (spawnSync: typeof import("node:child_process").spawnSync): SpawnFn =>
+const makeSpawnFn =
+  (spawnSync: typeof import("node:child_process").spawnSync): SpawnFn =>
   (cmd, args, _opts) => {
     const result = spawnSync(cmd, args as Parameters<typeof spawnSync>[1]);
     return {
       status: result.status,
       stdout: typeof result.stdout === "string" ? result.stdout : "",
       stderr: typeof result.stderr === "string" ? result.stderr : "",
-      error: result.error != null ? { code: String((result.error as NodeJS.ErrnoException).code) } : undefined,
+      error:
+        result.error != null
+          ? { code: String((result.error as NodeJS.ErrnoException).code) }
+          : undefined,
     };
   };
 
@@ -195,10 +204,7 @@ export const runDoctor = (
 
   // 1. Node version check.
   const parsedVersion = parseNodeVersion(process.version);
-  if (
-    parsedVersion === null ||
-    parsedVersion.major < MIN_NODE_VERSION
-  ) {
+  if (parsedVersion === null || parsedVersion.major < MIN_NODE_VERSION) {
     issues.push(
       `Node.js ${process.version} is below the minimum required version ${MIN_NODE_VERSION}.`,
     );
@@ -210,7 +216,10 @@ export const runDoctor = (
       shell: false,
       encoding: "utf8",
     });
-    if (result.error != null && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (
+      result.error != null &&
+      (result.error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
       issues.push(
         "opencode: executable not found on PATH — is OpenCode installed?\n" +
           "  hint: install from https://opencode.ai and ensure it is on your PATH",
@@ -221,9 +230,7 @@ export const runDoctor = (
       );
     }
   } catch (err) {
-    issues.push(
-      `opencode: could not be invoked — ${(err as Error).message}`,
-    );
+    issues.push(`opencode: could not be invoked — ${(err as Error).message}`);
   }
 
   // 3. Config readability and validity.
@@ -273,9 +280,7 @@ export const runDoctor = (
     cacheEntries = [];
   }
   if (cacheEntries.length > 0) {
-    info.push(
-      `Cache: ${cacheEntries.length} entry(s) found in ${packagesDir}`,
-    );
+    info.push(`Cache: ${cacheEntries.length} entry(s) found in ${packagesDir}`);
     for (const entry of cacheEntries) {
       info.push(`  - ${entry}`);
     }
@@ -294,9 +299,7 @@ export const runDoctor = (
       `Config parent directory does not exist and cannot be created: ${configParent}`,
     );
   } else if (!fs.canWrite(configParent)) {
-    issues.push(
-      `Config directory is not writable: ${configParent}`,
-    );
+    issues.push(`Config directory is not writable: ${configParent}`);
   }
 
   return {

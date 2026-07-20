@@ -164,7 +164,11 @@ export const defaultSpawn: SpawnFn = async (
 type SpawnOverload = {
   // Signature A — ProcessRunner-compatible (executable, args, opts?)
   // The third arg { spawn?, env?, stdio? } is for unit-test injectability only.
-  (executable: "opencode", args: string[], opts?: SpawnOpencodePluginOptions): Promise<ProcessResult>;
+  (
+    executable: "opencode",
+    args: string[],
+    opts?: SpawnOpencodePluginOptions,
+  ): Promise<ProcessResult>;
   // Signature B — SpawnFn-based (args, opts?)
   (args: string[], opts?: SpawnOpencodePluginOptions): Promise<SpawnResult>;
 };
@@ -224,7 +228,8 @@ const _spawnPluginImpl = async (
 };
 
 // Cast the implementation to satisfy the overloads
-export const spawnOpencodePlugin: SpawnOverload = _spawnPluginImpl as SpawnOverload;
+export const spawnOpencodePlugin: SpawnOverload =
+  _spawnPluginImpl as SpawnOverload;
 
 // ---------------------------------------------------------------------------
 // ProcessRunner interface (used by update.ts and main.ts option types)

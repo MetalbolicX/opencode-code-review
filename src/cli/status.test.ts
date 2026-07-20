@@ -236,12 +236,18 @@ describe("runDoctor", () => {
 
   it("reports Node < 20 as a failing issue", () => {
     const origVersion = process.version;
-    Object.defineProperty(process, "version", { value: "v18.0.0", configurable: true });
+    Object.defineProperty(process, "version", {
+      value: "v18.0.0",
+      configurable: true,
+    });
     const spawnFn = mockSpawnFound();
     const fs = createMemFs({});
     const result = runDoctor(fs, process.env, spawnFn);
     expect(result.issues.some((issue) => issue.includes("Node"))).toBe(true);
-    Object.defineProperty(process, "version", { value: origVersion, configurable: true });
+    Object.defineProperty(process, "version", {
+      value: origVersion,
+      configurable: true,
+    });
   });
 
   it("reports missing opencode as a failing issue", () => {
@@ -250,14 +256,18 @@ describe("runDoctor", () => {
       [CONFIG]: JSON.stringify({ plugin: [PLUGIN_NAME] }),
     });
     const result = runDoctor(fs, process.env, spawnFn);
-    expect(result.issues.some((issue) => issue.includes("opencode"))).toBe(true);
+    expect(result.issues.some((issue) => issue.includes("opencode"))).toBe(
+      true,
+    );
   });
 
   it("reports malformed JSON config as an issue", () => {
     const spawnFn = mockSpawnFound();
     const fs = createMemFs({ [CONFIG]: "{broken" });
     const result = runDoctor(fs, process.env, spawnFn);
-    expect(result.issues.some((issue) => issue.includes("malformed"))).toBe(true);
+    expect(result.issues.some((issue) => issue.includes("malformed"))).toBe(
+      true,
+    );
   });
 
   it("reports non-writable config dir as a failing issue", () => {
@@ -268,7 +278,11 @@ describe("runDoctor", () => {
     // Override canWrite to return false for the config parent.
     fs.canWrite = () => false;
     const result = runDoctor(fs, process.env, spawnFn);
-    expect(result.issues.some((issue) => issue.includes("writable") || issue.includes("write"))).toBe(true);
+    expect(
+      result.issues.some(
+        (issue) => issue.includes("writable") || issue.includes("write"),
+      ),
+    ).toBe(true);
   });
 
   it("reports cache presence as an info line", () => {
@@ -286,7 +300,9 @@ describe("runDoctor", () => {
       },
     };
     const result = runDoctor(fs, process.env, spawnFn);
-    expect(result.info.some((i) => i.includes("cache") || i.includes("packages"))).toBe(true);
+    expect(
+      result.info.some((i) => i.includes("cache") || i.includes("packages")),
+    ).toBe(true);
   });
 
   it("doctor does NOT read source checkout package.json", () => {

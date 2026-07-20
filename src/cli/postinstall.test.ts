@@ -73,7 +73,9 @@ const createFakeFs = (
     canWrite: (): boolean => true,
   };
 
-  const tracked = fs as unknown as CliFs & { writtenFiles: Map<string, string> };
+  const tracked = fs as unknown as CliFs & {
+    writtenFiles: Map<string, string>;
+  };
   tracked.writtenFiles = writtenFiles;
   return tracked;
 };
@@ -219,9 +221,10 @@ describe("postinstall lifecycle", () => {
     //   2. Pass `install --yes` to invoke the installer
     //   3. Suppress stderr to avoid polluting npm install output
     //   4. Use || true to ensure npm install never fails due to config issues
-    const scriptPattern = /^node dist\/cli\.mjs install --yes 2>\/dev\/null \|\| true$/;
-    expect(scriptPattern.test("node dist/cli.mjs install --yes 2>/dev/null || true")).toBe(
-      true,
-    );
+    const scriptPattern =
+      /^node dist\/cli\.mjs install --yes 2>\/dev\/null \|\| true$/;
+    expect(
+      scriptPattern.test("node dist/cli.mjs install --yes 2>/dev/null || true"),
+    ).toBe(true);
   });
 });

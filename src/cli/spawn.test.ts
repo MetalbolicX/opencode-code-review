@@ -41,12 +41,17 @@ describe("spawnOpencodePlugin", () => {
   // Task 1.3 RED: Fixed argv — never shell, always ["plugin", spec, "--global"]
   it("calls opencode with ['plugin', spec, '--global']", async () => {
     const runner = createFakeRunner([{ status: 0, stdout: "ok" }]);
-    const result = await runner.run("opencode", ["plugin", "opencode-code-review", "--global"]);
+    const result = await runner.run("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ]);
     expect(runner.run).toHaveBeenCalledTimes(1);
-    expect(runner.run).toHaveBeenCalledWith(
-      "opencode",
-      ["plugin", "opencode-code-review", "--global"],
-    );
+    expect(runner.run).toHaveBeenCalledWith("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ]);
     expect(result.stdout).toBe("ok");
   });
 
@@ -59,25 +64,39 @@ describe("spawnOpencodePlugin", () => {
       "--global",
       "--force",
     ]);
-    expect(runner.run).toHaveBeenCalledWith(
-      "opencode",
-      ["plugin", "opencode-code-review", "--global", "--force"],
-    );
+    expect(runner.run).toHaveBeenCalledWith("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+      "--force",
+    ]);
     expect(result.status).toBe(0);
   });
 
   // Task 1.3 RED: Missing executable returns clear error
   it("returns clear error when opencode executable is missing", async () => {
-    const runner = createFakeRunner([{ missing: true, stderr: "opencode: executable not found" }]);
-    const result = await runner.run("opencode", ["plugin", "opencode-code-review", "--global"]);
+    const runner = createFakeRunner([
+      { missing: true, stderr: "opencode: executable not found" },
+    ]);
+    const result = await runner.run("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ]);
     expect(result.missing).toBe(true);
     expect(result.stderr).toContain("not found");
   });
 
   // Task 1.3 RED: Nonzero exit returns error
   it("returns nonzero status without throwing", async () => {
-    const runner = createFakeRunner([{ status: 1, stderr: "plugin registration failed" }]);
-    const result = await runner.run("opencode", ["plugin", "opencode-code-review", "--global"]);
+    const runner = createFakeRunner([
+      { status: 1, stderr: "plugin registration failed" },
+    ]);
+    const result = await runner.run("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("plugin registration failed");
   });
@@ -89,7 +108,11 @@ describe("spawnOpencodePlugin", () => {
     // was never called at all.
     expect(runner.run).toHaveBeenCalledTimes(0);
     // Verify the runner is still usable and returns a proper result on call
-    const result = await runner.run("opencode", ["plugin", "opencode-code-review", "--global"]);
+    const result = await runner.run("opencode", [
+      "plugin",
+      "opencode-code-review",
+      "--global",
+    ]);
     expect(result).toBeDefined();
   });
 });
@@ -108,7 +131,10 @@ describe("async spawn — non-blocking", () => {
       childStillRunning = true;
       // Simulate a long-running child that exits after a delay
       return new Promise<import("./spawn.ts").SpawnResult>((resolve) =>
-        setTimeout(() => resolve({ status: 0, stdout: "done", stderr: "" }), 100),
+        setTimeout(
+          () => resolve({ status: 0, stdout: "done", stderr: "" }),
+          100,
+        ),
       );
     };
 
@@ -116,7 +142,10 @@ describe("async spawn — non-blocking", () => {
     const m = await import("./spawn.ts");
 
     // Now call spawnOpencodePlugin — the resultPromise resolves after child exits
-    const resultPromise = m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn });
+    const resultPromise = m.spawnOpencodePlugin(
+      ["opencode-code-review", "--global"],
+      { spawn: fakeSpawn },
+    );
 
     // After this microtask checkpoint, fakeSpawn has run synchronously
     // (up to its first await) and set childStillRunning = true.
@@ -143,10 +172,16 @@ describe("async spawn — non-blocking", () => {
   // Task 2.1: stdout is captured correctly when child exits
   it("captures stdout and stderr when child exits", async () => {
     const m = await import("./spawn.ts");
-    const fakeSpawn: import("./spawn.ts").SpawnFn = async () =>
-      ({ status: 0, stdout: "plugin installed", stderr: "warning: deprecated" });
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => ({
+      status: 0,
+      stdout: "plugin installed",
+      stderr: "warning: deprecated",
+    });
 
-    const result = await m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn });
+    const result = await m.spawnOpencodePlugin(
+      ["opencode-code-review", "--global"],
+      { spawn: fakeSpawn },
+    );
 
     expect(result.stdout).toBe("plugin installed");
     expect(result.stderr).toBe("warning: deprecated");
@@ -164,8 +199,6 @@ describe("async spawn — non-blocking", () => {
       expect(result.stderr).toMatch(/not found|ENOENT/i);
     }
   });
-
-
 });
 
 // ---------------------------------------------------------------------------
@@ -186,7 +219,9 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
     vi.useFakeTimers();
 
     const resultPromise = import("./spawn.ts").then((m) =>
-      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], {
+        spawn: fakeSpawn,
+      }),
     );
 
     // Advance 30 seconds of fake time — the kill timer fires inside
@@ -204,13 +239,18 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
 
   // Task 2.3 RED: child exits before 30s → no kill sent
   it("does NOT send kill when child exits cleanly before 30-second timer fires", async () => {
-    const fakeSpawn: import("./spawn.ts").SpawnFn = async () =>
-      ({ status: 0, stdout: "ok", stderr: "" });
+    const fakeSpawn: import("./spawn.ts").SpawnFn = async () => ({
+      status: 0,
+      stdout: "ok",
+      stderr: "",
+    });
 
     vi.useFakeTimers();
 
     const result = await import("./spawn.ts").then((m) =>
-      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], {
+        spawn: fakeSpawn,
+      }),
     );
 
     // Advance well past 30 seconds — child already exited cleanly, no kill
@@ -231,7 +271,9 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
     vi.useFakeTimers();
 
     const result = await import("./spawn.ts").then((m) =>
-      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], {
+        spawn: fakeSpawn,
+      }),
     );
 
     // Advance timers — since the error was caught, no timer should be pending
@@ -255,7 +297,9 @@ describe("async spawn — 30-second SIGKILL timeout", () => {
     vi.useFakeTimers();
 
     const result = await import("./spawn.ts").then((m) =>
-      m.spawnOpencodePlugin(["opencode-code-review", "--global"], { spawn: fakeSpawn }),
+      m.spawnOpencodePlugin(["opencode-code-review", "--global"], {
+        spawn: fakeSpawn,
+      }),
     );
 
     await vi.advanceTimersByTimeAsync(60_000);
@@ -287,12 +331,11 @@ describe("spawnOpencodePlugin Signature A (executable, args)", () => {
       stderr: "",
     });
 
-    const result = await spawnOpencodePlugin("opencode", [
-      "plugin",
-      "opencode-code-review",
-      "--global",
-      "--force",
-    ], { spawn: fakeSpawn });
+    const result = await spawnOpencodePlugin(
+      "opencode",
+      ["plugin", "opencode-code-review", "--global", "--force"],
+      { spawn: fakeSpawn },
+    );
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("plugin installed ok");
@@ -310,12 +353,11 @@ describe("spawnOpencodePlugin Signature A (executable, args)", () => {
       return { status: 0, stdout: "", stderr: "" };
     };
 
-    await spawnOpencodePlugin("opencode", [
-      "plugin",
-      "opencode-code-review",
-      "--global",
-      "--force",
-    ], { spawn: fakeSpawn });
+    await spawnOpencodePlugin(
+      "opencode",
+      ["plugin", "opencode-code-review", "--global", "--force"],
+      { spawn: fakeSpawn },
+    );
 
     // Signature A passes args directly — no double-prepend
     expect(calls[0][0]).toBe("opencode");
@@ -335,11 +377,11 @@ describe("spawnOpencodePlugin Signature A (executable, args)", () => {
       throw err;
     };
 
-    const result = await spawnOpencodePlugin("opencode", [
-      "plugin",
-      "opencode-code-review",
-      "--global",
-    ], { spawn: fakeSpawn });
+    const result = await spawnOpencodePlugin(
+      "opencode",
+      ["plugin", "opencode-code-review", "--global"],
+      { spawn: fakeSpawn },
+    );
 
     // Always-resolved contract: check result fields instead of rejection
     expect(result.status).toBe(null);

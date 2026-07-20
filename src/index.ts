@@ -144,13 +144,13 @@ const opencodeReview: Plugin = async ({
         try {
           await client.session.promptAsync({
             body: {
-            agent: "ocr-review",
-            parts: [
-              {
-                type: "text",
-                text: "Session completed. Running automatic code review on staged changes...",
-              },
-            ],
+              agent: "ocr-review",
+              parts: [
+                {
+                  type: "text",
+                  text: "Session completed. Running automatic code review on staged changes...",
+                },
+              ],
             },
             path: { id: sessionID },
           });

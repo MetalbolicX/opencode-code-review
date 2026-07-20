@@ -355,12 +355,7 @@ describe("writeJsoncAtomic", () => {
       return origWrite(...args);
     };
 
-    writeJsoncAtomic(
-      target,
-      { plugin: ["other", PLUGIN_NAME] },
-      original,
-      fs,
-    );
+    writeJsoncAtomic(target, { plugin: ["other", PLUGIN_NAME] }, original, fs);
 
     const backupIdx = writeOrder.indexOf("backup");
     const writeIdx = writeOrder.indexOf("write");
@@ -375,12 +370,7 @@ describe("writeJsoncAtomic", () => {
   "otherField": true
 }`;
     const fs = createMemFs();
-    writeJsoncAtomic(
-      target,
-      { plugin: ["other", PLUGIN_NAME] },
-      original,
-      fs,
-    );
+    writeJsoncAtomic(target, { plugin: ["other", PLUGIN_NAME] }, original, fs);
     const result = fs.__files.get(target) as string;
     // Comment must be preserved
     expect(result).toContain("// installed plugin");
@@ -392,12 +382,7 @@ describe("writeJsoncAtomic", () => {
     const target = "/home/me/.config/opencode/opencode.json";
     const original = `{"plugin":["other"],}`;
     const fs = createMemFs();
-    writeJsoncAtomic(
-      target,
-      { plugin: ["other", PLUGIN_NAME] },
-      original,
-      fs,
-    );
+    writeJsoncAtomic(target, { plugin: ["other", PLUGIN_NAME] }, original, fs);
     const result = fs.__files.get(target) as string;
     // jsonc-parser preserves the trailing comma from the original; the result
     // is valid JSONC even though JSON.parse would throw on the trailing comma.
