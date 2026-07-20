@@ -27,7 +27,8 @@
     "lint": "biome check src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test",
+    "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test && pnpm verify:install",
+    "verify:install": "node scripts/verify-install.mjs",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
