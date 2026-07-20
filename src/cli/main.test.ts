@@ -18,20 +18,46 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Declare mock functions at module scope — hoisted by vi.mock
-const mockRunInstall = vi.fn<() => Promise<{ status: "wrote" | "skipped"; specifier: string }>>();
-const mockRunUninstall = vi.fn<() => Promise<{ status: "wrote" | "planned" | "noop"; path: string; removed: string[]; purged: string[] }>>();
-const mockRunStatus = vi.fn<() => Promise<{ installed: boolean; path: string; format: "json" | "jsonc"; specifier: string | null; extras: string[] }>>();
-const mockRunUpdate = vi.fn<
-  (
-    opts: { dryRun: boolean; spawn?: import("./spawn.ts").ProcessRunner },
-    fs: import("./config.ts").CliFs,
-    env: NodeJS.ProcessEnv,
-  ) => Promise<{ status: "noop" | "stale"; cachePaths: string[]; instruction: string }>
->();
+const mockRunInstall =
+  vi.fn<() => Promise<{ status: "wrote" | "skipped"; specifier: string }>>();
+const mockRunUninstall =
+  vi.fn<
+    () => Promise<{
+      status: "wrote" | "planned" | "noop";
+      path: string;
+      removed: string[];
+      purged: string[];
+    }>
+  >();
+const mockRunStatus =
+  vi.fn<
+    () => Promise<{
+      installed: boolean;
+      path: string;
+      format: "json" | "jsonc";
+      specifier: string | null;
+      extras: string[];
+    }>
+  >();
+const mockRunUpdate =
+  vi.fn<
+    (
+      opts: {
+        dryRun: boolean;
+        verbose?: boolean;
+        spawn?: import("./spawn.ts").ProcessRunner;
+      },
+      fs: import("./config.ts").CliFs,
+      env: NodeJS.ProcessEnv,
+    ) => Promise<{
+      status: "noop" | "stale";
+      cachePaths: string[];
+      instruction: string;
+    }>
+  >();
 
-const mockRunDoctor = vi.fn<
-  () => { issues: string[]; warnings: string[]; info: string[] }
->();
+const mockRunDoctor =
+  vi.fn<() => { issues: string[]; warnings: string[]; info: string[] }>();
 
 // Fake fs for update tests
 const fakeFs = {
@@ -79,7 +105,9 @@ beforeEach(() => {
   mockRunStatus.mockReset();
   mockRunUpdate.mockReset();
   mockRunDoctor.mockReset();
-  Object.values(fakeFs).forEach(fn => { fn.mockReset(); });
+  Object.values(fakeFs).forEach((fn) => {
+    fn.mockReset();
+  });
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -91,7 +119,10 @@ afterEach(() => {
 describe("runMain (async dispatcher)", () => {
   // Task 2.3 RED: Bare `ocr` (no command) → routes to install (not exit 2)
   it("bare ocr with no command routes to install and exits 0", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     const r = await runMain([]);
     expect(r.command).toBe("install");
     expect(r.exitCode).toBe(0);
@@ -131,7 +162,10 @@ describe("runMain (async dispatcher)", () => {
 
   // Task 2.3 RED: Install dispatches with correct options
   it("install command dispatches with correct options", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     const r = await runMain(["install"]);
     expect(r.command).toBe("install");
     expect(r.exitCode).toBe(0);
@@ -139,7 +173,10 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("install --version forwards version option", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review@1.2.3" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review@1.2.3",
+    });
     const r = await runMain(["install", "--version", "1.2.3"]);
     expect(r.command).toBe("install");
     expect(r.exitCode).toBe(0);
@@ -149,7 +186,10 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("install --latest sets version to latest", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     await runMain(["install", "--latest"]);
     expect(mockRunInstall).toHaveBeenCalledWith(
       expect.objectContaining({ version: "latest" }),
@@ -157,7 +197,10 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("install --dry-run forwards dryRun option", async () => {
-    mockRunInstall.mockResolvedValue({ status: "skipped", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "skipped",
+      specifier: "opencode-code-review",
+    });
     await runMain(["install", "--dry-run"]);
     expect(mockRunInstall).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: true }),
@@ -166,7 +209,12 @@ describe("runMain (async dispatcher)", () => {
 
   // Task 2.3 RED: Uninstall dispatches with correct options
   it("uninstall command dispatches and exits 0", async () => {
-    mockRunUninstall.mockResolvedValue({ status: "wrote", path: "/x", removed: [], purged: [] });
+    mockRunUninstall.mockResolvedValue({
+      status: "wrote",
+      path: "/x",
+      removed: [],
+      purged: [],
+    });
     const r = await runMain(["uninstall"]);
     expect(r.command).toBe("uninstall");
     expect(r.exitCode).toBe(0);
@@ -174,7 +222,12 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("uninstall --purge forwards purge option", async () => {
-    mockRunUninstall.mockResolvedValue({ status: "wrote", path: "/x", removed: [], purged: [] });
+    mockRunUninstall.mockResolvedValue({
+      status: "wrote",
+      path: "/x",
+      removed: [],
+      purged: [],
+    });
     await runMain(["uninstall", "--purge"]);
     expect(mockRunUninstall).toHaveBeenCalledWith(
       expect.objectContaining({ purge: true }),
@@ -182,7 +235,12 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("uninstall --dry-run forwards dryRun option", async () => {
-    mockRunUninstall.mockResolvedValue({ status: "planned", path: "/x", removed: [], purged: [] });
+    mockRunUninstall.mockResolvedValue({
+      status: "planned",
+      path: "/x",
+      removed: [],
+      purged: [],
+    });
     await runMain(["uninstall", "--dry-run"]);
     expect(mockRunUninstall).toHaveBeenCalledWith(
       expect.objectContaining({ dryRun: true }),
@@ -209,26 +267,35 @@ describe("runMain (async dispatcher)", () => {
     mockRunInstall.mockRejectedValue(new Error("spawn failed"));
     const r = await runMain(["install"]);
     expect(r.exitCode).toBe(1);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("spawn failed"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("spawn failed"),
+    );
   });
 
   it("returns exit 1 when uninstall rejects", async () => {
     mockRunUninstall.mockRejectedValue(new Error("config locked"));
     const r = await runMain(["uninstall"]);
     expect(r.exitCode).toBe(1);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("config locked"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("config locked"),
+    );
   });
 
   it("returns exit 1 when status rejects", async () => {
     mockRunStatus.mockRejectedValue(new Error("malformed JSON"));
     const r = await runMain(["status"]);
     expect(r.exitCode).toBe(1);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("malformed JSON"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("malformed JSON"),
+    );
   });
 
   // Additional CLI-parsing branch coverage
   it("returns exit 2 when an unknown flag is passed to install", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     // parseArgs strict mode throws on unknown flags
     const r = await runMain(["install", "--not-a-real-flag"]);
     expect(r.exitCode).toBe(2);
@@ -236,7 +303,10 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("returns exit 2 when --version is passed without a value to install", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     // parseArgs throws when --version is not followed by a value
     const r = await runMain(["install", "--version"]);
     expect(r.exitCode).toBe(2);
@@ -244,7 +314,10 @@ describe("runMain (async dispatcher)", () => {
   });
 
   it("install command with extra positional args routes to install", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     // Extra positional args after "install" are ignored by parseArgs allowPositionals
     const r = await runMain(["install", "extra-arg"]);
     expect(r.command).toBe("install");
@@ -256,7 +329,9 @@ describe("runMain (async dispatcher)", () => {
     const r = await runMain(["foobar", "extra-arg"]);
     expect(r.command).toBeNull();
     expect(r.exitCode).toBe(2);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unknown command"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unknown command"),
+    );
   });
 });
 
@@ -281,12 +356,17 @@ describe("runCli", () => {
   it("returns 2 for unknown command", async () => {
     const exitCode = await runCli(["bogus-command"]);
     expect(exitCode).toBe(2);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("unknown command"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("unknown command"),
+    );
   });
 
   // ocr install → routes to install → exit 0
   it("returns 0 for install command", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     const exitCode = await runCli(["install"]);
     expect(exitCode).toBe(0);
     expect(mockRunInstall).toHaveBeenCalledTimes(1);
@@ -294,7 +374,11 @@ describe("runCli", () => {
 
   // ocr update → update command → exit 0 (no-op dry-run or success)
   it("returns 0 for update command", async () => {
-    mockRunUpdate.mockResolvedValue({ status: "noop", cachePaths: [], instruction: "" });
+    mockRunUpdate.mockResolvedValue({
+      status: "noop",
+      cachePaths: [],
+      instruction: "",
+    });
     const exitCode = await runCli(["update"]);
     expect(exitCode).toBe(0);
     expect(mockRunUpdate).toHaveBeenCalledTimes(1);
@@ -302,10 +386,16 @@ describe("runCli", () => {
 
   // ocr update --dry-run → returns 0
   it("returns 0 for update --dry-run", async () => {
-    mockRunUpdate.mockResolvedValue({ status: "noop", cachePaths: [], instruction: "" });
+    mockRunUpdate.mockResolvedValue({
+      status: "noop",
+      cachePaths: [],
+      instruction: "",
+    });
     const exitCode = await runCli(["update", "--dry-run"]);
     expect(exitCode).toBe(0);
-    const firstCallArgs = mockRunUpdate.mock.calls[0]?.[0] as { dryRun: boolean } | undefined;
+    const firstCallArgs = mockRunUpdate.mock.calls[0]?.[0] as
+      | { dryRun: boolean }
+      | undefined;
     expect(firstCallArgs?.dryRun).toBe(true);
   });
 
@@ -318,6 +408,10 @@ describe("runCli", () => {
     });
     const exitCode = await runCli(["update"]);
     expect(exitCode).toBe(0);
+    const hasPurgedLog = logSpy.mock.calls.some((call: unknown[]) =>
+      String(call[0]).includes("purged:"),
+    );
+    expect(hasPurgedLog).toBe(false);
   });
 
   // ocr --help → help → exit 0
@@ -329,7 +423,10 @@ describe("runCli", () => {
 
   // runCli returns the exit code set by runMain
   it("returns the same exit code as runMain for a successful install", async () => {
-    mockRunInstall.mockResolvedValue({ status: "wrote", specifier: "opencode-code-review" });
+    mockRunInstall.mockResolvedValue({
+      status: "wrote",
+      specifier: "opencode-code-review",
+    });
     const runMainResult = await runMain(["install"]);
     const runCliResult = await runCli(["install"]);
     expect(runCliResult).toBe(runMainResult.exitCode);
@@ -364,6 +461,126 @@ describe("runCli", () => {
     });
     const exitCode = await runCli(["doctor"]);
     expect(exitCode).toBe(1);
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("opencode not found"));
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("opencode not found"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.1 RED: --verbose forwarding and thrown update errors → exit 1
+// ---------------------------------------------------------------------------
+
+describe("runMain — Task 3.1 RED: --verbose forwarding", () => {
+  // ocr update --verbose forwards verbose=true to runUpdate
+  it("update --verbose passes verbose=true to runUpdate", async () => {
+    mockRunUpdate.mockResolvedValue({
+      status: "noop",
+      cachePaths: [],
+      instruction: "",
+    });
+    await runMain(["update", "--verbose"]);
+    expect(mockRunUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ verbose: true }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  // ocr update without --verbose passes verbose=false to runUpdate (not forwarded as true)
+  it("update without --verbose passes verbose=false to runUpdate", async () => {
+    mockRunUpdate.mockResolvedValue({
+      status: "noop",
+      cachePaths: [],
+      instruction: "",
+    });
+    await runMain(["update"]);
+    expect(mockRunUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ verbose: false }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  // ocr update --verbose --dry-run combines both flags correctly
+  it("update --verbose --dry-run forwards both flags to runUpdate", async () => {
+    mockRunUpdate.mockResolvedValue({
+      status: "noop",
+      cachePaths: [],
+      instruction: "",
+    });
+    await runMain(["update", "--verbose", "--dry-run"]);
+    expect(mockRunUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ verbose: true, dryRun: true }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+});
+
+describe("runMain — Task 3.1 RED: thrown update errors map to exit 1", () => {
+  // Task 3.1 RED: update throws → runMain catches and returns exit 1
+  it("returns exit 1 when runUpdate throws (e.g. post-verify cache mismatch)", async () => {
+    mockRunUpdate.mockRejectedValue(
+      new Error(
+        'Cache was not refreshed — version "1.0.0" is unchanged after reinstall.\n  hint: run the following to clear the stale cache:\n    rm -rf ~/.cache/opencode/packages/opencode-code-review* && ocr update',
+      ),
+    );
+    const r = await runMain(["update"]);
+    expect(r.exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cache was not refreshed"),
+    );
+  });
+
+  // Task 3.1 RED: thrown update error surfaces the full remediation message
+  it("surfaces thrown update error message verbatim on stderr", async () => {
+    mockRunUpdate.mockRejectedValue(
+      new Error(
+        "Cache was not refreshed.\n  hint: run the following to clear the stale cache:\n    rm -rf ~/.cache/opencode/packages/opencode-code-review* && ocr update",
+      ),
+    );
+    await runMain(["update"]);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "rm -rf ~/.cache/opencode/packages/opencode-code-review*",
+      ),
+    );
+  });
+
+  // Task 3.1 RED: thrown update error with spawn failure (non-zero exit)
+  it("returns exit 1 when runUpdate throws due to subprocess non-zero exit", async () => {
+    mockRunUpdate.mockRejectedValue(
+      new Error(
+        "opencode plugin opencode-code-review --global --force exited with status 1:\n  plugin update failed",
+      ),
+    );
+    const r = await runMain(["update"]);
+    expect(r.exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("plugin update failed"),
+    );
+  });
+
+  // Task 3.1 RED: thrown update error with missing executable
+  it("returns exit 1 when runUpdate throws due to missing executable", async () => {
+    mockRunUpdate.mockRejectedValue(
+      new Error(
+        "opencode: executable not found on PATH — is OpenCode installed?\n  hint: install from https://opencode.ai and ensure it is on your PATH",
+      ),
+    );
+    const r = await runMain(["update"]);
+    expect(r.exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("not found"));
+  });
+
+  // Task 3.1 RED: update error still maps to exit 1 even with --verbose present
+  it("returns exit 1 when update throws even with --verbose flag present", async () => {
+    mockRunUpdate.mockRejectedValue(new Error("Cache was not refreshed"));
+    const r = await runMain(["update", "--verbose"]);
+    expect(r.exitCode).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cache was not refreshed"),
+    );
   });
 });

@@ -49,6 +49,9 @@ Options (uninstall):
 
 Options (all):
   -h, --help         Show this help and exit
+
+Options (update):
+      --verbose      Emit diagnostic information (resolved paths, version, argv, exit code)
 `;
 
 const printUsage = (): void => {
@@ -76,6 +79,7 @@ const parseCliArgs = (argv: readonly string[]): ParsedArgs => {
       "dry-run": { type: "boolean" },
       purge: { type: "boolean" },
       help: { type: "boolean", short: "h" },
+      verbose: { type: "boolean" },
     },
   });
   return {
@@ -210,10 +214,12 @@ export const runMain = async (
       }
       case "update": {
         const dryRun = parsed.values["dry-run"] === true;
+        const verbose = parsed.values.verbose === true;
         const { createRealFs } = await import("./real-fs.ts");
         const result = await runUpdate(
           {
             dryRun,
+            verbose,
             spawn: opts.spawn,
           },
           createRealFs(),
@@ -227,11 +233,6 @@ export const runMain = async (
             return { command, exitCode: 0 };
           case "stale":
             console.log(`Updated to opencode-code-review`);
-            if (result.cachePaths.length > 0) {
-              for (const p of result.cachePaths) {
-                console.log(`  purged: ${p}`);
-              }
-            }
             return { command, exitCode: 0 };
           default: {
             // Exhaustive: UpdateStatus is "stale" | "noop"

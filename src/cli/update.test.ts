@@ -148,18 +148,70 @@ const createMemFs = (
 // Fake ProcessRunner / SpawnFn
 // ---------------------------------------------------------------------------
 
-type FakeRunnerOptions = Partial<ProcessResult> & { spawnErr?: Error };
+/**
+ * Callback applied inside the fake runner's run() mock, after spawn "completes".
+ * Allows tests to mutate the MemFs state to simulate post-spawn cache changes.
+ */
+type PostSpawnMutation = (files: Map<string, string>) => void;
+
+/**
+ * Default post-spawn mutation — simulates the opencode plugin
+ * creating/refreshing the @latest cache with version 1.1.0.
+ * Applied automatically when createFakeRunner is called without
+ * explicit postSpawnMutations (status-0 success path).
+ */
+const defaultPostSpawnMutation: PostSpawnMutation = (files) => {
+  files.set(
+    "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json",
+    JSON.stringify({ version: "1.1.0" }),
+  );
+};
+
+type FakeRunnerOptions = Partial<ProcessResult> & {
+  spawnErr?: Error;
+  /** Post-spawn mutations applied inside the runner's run() mock,
+   *  after the spawn "completes" but before the Promise resolves.
+   *  Allows tests to simulate post-spawn cache file changes.
+   *  Default: if undefined, applies a single default mutation that
+   *  creates/updates @latest/package.json with version "1.1.0".
+   *  Pass `[]` to disable (used by tests that specifically test
+   *  unchanged/missing/invalid post-version error paths). */
+  postSpawnMutations?: PostSpawnMutation[] | undefined;
+};
 
 const createFakeRunner = (
   results: FakeRunnerOptions[] = [],
+  /** Optional MemFs reference used for the default post-spawn mutation.
+   *  When provided, the default mutation (simulating cache refresh to 1.1.0)
+   *  will automatically apply to this MemFs without needing linkMemFs.
+   *  Can be omitted when all runners in the test use explicit
+   *  postSpawnMutations: [] (e.g., in error-path tests). */
+  memFs?: MemFs,
 ): ProcessRunner & { runCount: number[] } => {
   const callCount: number[] = [];
   const runner: ProcessRunner & { runCount: number[] } = {
     runCount: callCount,
-    run: vi.fn(async (_executable, _args) => {
+    run: vi.fn(async (_executable, _args, _opts?: unknown) => {
       callCount.push(callCount.length);
       const r = results[callCount.length - 1] ?? {};
       if (r.spawnErr) throw r.spawnErr;
+      // Apply post-spawn mutations. Default (when undefined) is to simulate
+      // the cache being refreshed to version 1.1.0 after a successful spawn.
+      // Pass [] to disable (for tests of unchanged/missing/invalid version).
+      // For the default mutation, prefer memFs.__files if provided;
+      // fall back to runner.__memFiles (set by linkMemFs) as a secondary path.
+      const mutationFiles: Map<string, string> | undefined =
+        memFs !== undefined
+          ? memFs.__files
+          : (runner as unknown as { __memFiles?: Map<string, string> })
+              .__memFiles;
+      const mutations: PostSpawnMutation[] =
+        r.postSpawnMutations === undefined
+          ? [defaultPostSpawnMutation]
+          : r.postSpawnMutations;
+      for (const mutation of mutations) {
+        if (mutationFiles) mutation(mutationFiles);
+      }
       return {
         status: r.status ?? 0,
         stdout: r.stdout ?? "",
@@ -169,6 +221,20 @@ const createFakeRunner = (
     }),
   };
   return runner;
+};
+
+/**
+ * Link a MemFs __files map to a fake runner so that postSpawnMutations
+ * can mutate the in-memory filesystem inside the runner's run() mock.
+ * Must be called by the test after createMemFs and createFakeRunner,
+ * but BEFORE runUpdate is called.
+ */
+const linkMemFs = (
+  runner: ProcessRunner & { runCount: number[] },
+  memFs: MemFs,
+): void => {
+  (runner as unknown as { __memFiles: Map<string, string> }).__memFiles =
+    memFs.__files;
 };
 
 // ---------------------------------------------------------------------------
@@ -210,7 +276,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
       }),
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     // No latestVersion injection — unconditional flow does not consult registry
     const result = await runUpdate({ spawn: runner }, fs, {
@@ -241,7 +307,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
       }),
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -259,7 +325,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
       }),
       // No cache directories
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -283,7 +349,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
         plugin: [],
       }),
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -320,7 +386,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
       }),
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -356,7 +422,7 @@ describe("runUpdate — unconditional update contract (Task 4.1)", () => {
 
     // Real run: instruction is empty (spawn replaces the need for it)
     const realResult = await runUpdate(
-      { spawn: createFakeRunner([{ status: 0 }]) },
+      { spawn: createFakeRunner([{ status: 0 }], fs) },
       fs,
       { HOME: "/home/test" },
     );
@@ -391,7 +457,7 @@ describe("runUpdate — error boundaries (Task 4.3)", () => {
         ],
       },
     );
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -421,7 +487,7 @@ describe("runUpdate — error boundaries (Task 4.3)", () => {
         ],
       },
     );
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     // Should NOT throw
     await expect(
@@ -488,7 +554,7 @@ describe("runUpdate — error boundaries (Task 4.3)", () => {
         ],
       },
     );
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -543,7 +609,7 @@ describe("runUpdate — spawn errors", () => {
       "/home/test/.cache/opencode/packages/opencode-code-review": "",
       "/home/test/.cache/opencode/packages/opencode-code-review@1.0.0": "",
     });
-    const runner = createFakeRunner([{ status: 0 }]);
+    const runner = createFakeRunner([{ status: 0 }], fs);
 
     const result = await runUpdate({ spawn: runner }, fs, {
       HOME: "/home/test",
@@ -590,5 +656,682 @@ describe("update.ts import-graph sanity", () => {
 
     // The import path ./registry must not appear in update.ts
     expect(updateSource).not.toContain("./registry");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runUpdate — Task 2.1 RED: fixed argv, no registry import, no version gate
+// (supplements existing unconditional-update RED tests)
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — Task 2.1 RED: fixed argv contract", () => {
+  // The argv must be exactly ["plugin", PLUGIN_NAME, "--global", "--force"]
+  // regardless of any other option combination.
+  it("uses exactly ['plugin', 'opencode-code-review', '--global', '--force'] argv", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(runner.run).toHaveBeenCalledWith("opencode", [
+      "plugin",
+      PLUGIN_NAME,
+      "--global",
+      "--force",
+    ]);
+  });
+
+  it("argv is unchanged when verbose=true", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const call = (runner.run as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("opencode");
+    expect(call[1]).toEqual(["plugin", PLUGIN_NAME, "--global", "--force"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runUpdate — Task 2.2 RED: process-threat error boundaries
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — Task 2.2 RED: dry-run makes zero purge/spawn calls", () => {
+  it("dry-run makes zero rmdirSync calls", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([]);
+
+    await runUpdate({ dryRun: true, spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(fs.__callLog.filter((c) => c.method === "rmdirSync").length).toBe(0);
+  });
+
+  it("dry-run makes zero spawn calls", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([]);
+
+    await runUpdate({ dryRun: true, spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  it("dry-run returns status 'noop' with empty cachePaths", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([]);
+
+    const result = await runUpdate({ dryRun: true, spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("noop");
+    expect(result.cachePaths).toEqual([]);
+  });
+});
+
+describe("runUpdate — Task 2.2 RED: purge failure warns but continues", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it("surfaces purge failure as a warning but does NOT throw", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+          JSON.stringify({ version: "1.0.0" }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/lib/file.js":
+          "content",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review@latest",
+        ],
+      },
+    );
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    // Must NOT throw even though purge fails
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    // Warning was emitted about the purge failure
+    expect(warnSpy).toHaveBeenCalled();
+    // But update still resolved with stale status
+    expect(result.status).toBe("stale");
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns about purge failure even when spawn succeeds", async () => {
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+          JSON.stringify({ version: "1.0.0" }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/lib/file.js":
+          "content",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review@latest",
+        ],
+      },
+    );
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+    expect(warnSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("runUpdate — Task 2.2 RED: missing executable throws loudly", () => {
+  it("throws non-zero error with remediation hint when executable is missing", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ missing: true }]);
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("not found");
+  });
+
+  it("throws when spawn returns nonzero exit", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 1, stderr: "update failed" }]);
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("update failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runUpdate — Task 2.3 RED: version pre/post verification
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — Task 2.3 RED: version pre/post verification", () => {
+  // post-version changed from pre-version → resolves with stale
+  it("resolves with stale when post-version differs from pre-version", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const postMutation: PostSpawnMutation = (files) => {
+      files.set(
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json",
+        JSON.stringify({ version: "1.1.0" }),
+      );
+    };
+    const runner = createFakeRunner([
+      { status: 0, postSpawnMutations: [postMutation] },
+    ]);
+    linkMemFs(runner, fs);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+  });
+
+  // post-version equal to pre-version → throws with rm -rf remediation
+  it("throws when post-version equals pre-version (cache did not refresh)", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      // Both pre and post would read version "1.0.0"
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner(
+      [{ status: 0, postSpawnMutations: [] }],
+      fs,
+    );
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("rm -rf");
+  });
+
+  // post-version missing → throws with rm -rf remediation
+  it("throws when post-version is missing (cache directory absent)", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      // @latest directory does not exist — no post-version readable
+    });
+    const runner = createFakeRunner(
+      [{ status: 0, postSpawnMutations: [] }],
+      fs,
+    );
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("rm -rf");
+  });
+
+  // post-version invalid (not valid JSON) → throws with rm -rf remediation
+  it("throws when post-version is invalid (malformed package.json)", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        "not valid json{",
+    });
+    const runner = createFakeRunner(
+      [{ status: 0, postSpawnMutations: [] }],
+      fs,
+    );
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("rm -rf");
+  });
+
+  // post-version missing (package.json absent) → throws
+  it("throws when post-version package.json is absent", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      // @latest dir exists but package.json does not
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest": "",
+    });
+    const runner = createFakeRunner(
+      [{ status: 0, postSpawnMutations: [] }],
+      fs,
+    );
+
+    await expect(
+      runUpdate({ spawn: runner }, fs, { HOME: "/home/test" }),
+    ).rejects.toThrow("rm -rf");
+  });
+
+  // pre-version missing, post-version present and different → resolves with stale
+  it("resolves with stale when pre-version is missing but post-version is readable", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      // No pre-version readable (no @latest/package.json initially)
+    });
+    const postMutation: PostSpawnMutation = (files) => {
+      files.set(
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json",
+        JSON.stringify({ version: "1.1.0" }),
+      );
+    };
+    const runner = createFakeRunner([
+      { status: 0, postSpawnMutations: [postMutation] },
+    ]);
+    linkMemFs(runner, fs);
+
+    // No error should be thrown — pre-version missing is allowed; post-version is newer
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    expect(result.status).toBe("stale");
+  });
+
+  // UpdateResult.status is always 'stale' or 'noop' — never anything else
+  it("status is always 'stale' | 'noop' after any successful update run", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    // Simulate post-spawn version change so the verification check passes
+    const postMutation: PostSpawnMutation = (files) => {
+      files.set(
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json",
+        JSON.stringify({ version: "1.2.0" }),
+      );
+    };
+    const runner = createFakeRunner([
+      { status: 0, postSpawnMutations: [postMutation] },
+    ]);
+    linkMemFs(runner, fs);
+
+    const result = await runUpdate({ spawn: runner }, fs, {
+      HOME: "/home/test",
+    });
+
+    // status must be one of the two allowed values
+    expect(["stale", "noop"]).toContain(result.status);
+    expect(result).not.toHaveProperty("installedVersion");
+    expect(result).not.toHaveProperty("latestVersion");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3.2 RED: verbose mode emits diagnostic lines; default mode emits none
+// ---------------------------------------------------------------------------
+
+describe("runUpdate — Task 3.2 RED: verbose mode emits diagnostics", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  // verbose emits resolved cache paths
+  it("verbose=true emits resolved cache paths", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("resolved cache paths"))).toBe(
+      true,
+    );
+  });
+
+  // verbose emits pre-purge version
+  it("verbose=true emits pre-purge version", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("pre-purge version"))).toBe(
+      true,
+    );
+  });
+
+  // verbose emits the spawn argv
+  it("verbose=true emits the spawn instruction", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(
+      logs.some(
+        (l: string) =>
+          l.includes("would spawn") || l.includes("opencode plugin"),
+      ),
+    ).toBe(true);
+  });
+
+  // verbose emits per-path purge outcomes
+  it("verbose=true emits per-path purge outcomes", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    // Either "purged:" for success or "purge errors:" for failure
+    expect(
+      logs.some(
+        (l: string) => l.includes("purged:") || l.includes("purge errors:"),
+      ),
+    ).toBe(true);
+  });
+
+  // verbose emits spawn exit code
+  it("verbose=true emits spawn exit code", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("spawn exit code"))).toBe(true);
+  });
+
+  // verbose emits post-spawn version
+  it("verbose=true emits post-spawn version", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner, verbose: true }, fs, {
+      HOME: "/home/test",
+    });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("post-spawn version"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("runUpdate — Task 3.2 RED: default mode (verbose=false) emits none of those diagnostics", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  // default mode: no resolved cache paths line
+  it("verbose=undefined emits no 'resolved cache paths' line", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("resolved cache paths"))).toBe(
+      false,
+    );
+  });
+
+  // default mode: no pre-purge version line
+  it("verbose=undefined emits no 'pre-purge version' line", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("pre-purge version"))).toBe(
+      false,
+    );
+  });
+
+  // default mode: no spawn instruction line
+  it("verbose=undefined emits no spawn instruction line", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("would spawn"))).toBe(false);
+  });
+
+  // default mode: no per-path purge outcomes
+  it("verbose=undefined emits no per-path 'purged:' or 'purge errors:' lines", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(
+      logs.some(
+        (l: string) =>
+          l.includes("[verbose] purged:") ||
+          l.includes("[verbose] purge errors:"),
+      ),
+    ).toBe(false);
+  });
+
+  // default mode: no spawn exit code line
+  it("verbose=undefined emits no 'spawn exit code' line", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("spawn exit code"))).toBe(false);
+  });
+
+  // default mode: no post-spawn version line
+  it("verbose=undefined emits no 'post-spawn version' line", async () => {
+    const fs = createMemFs({
+      "/home/test/.config/opencode/opencode.json": JSON.stringify({
+        plugin: [`${PLUGIN_NAME}@1.0.0`],
+      }),
+      "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+        JSON.stringify({ version: "1.0.0" }),
+    });
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    const logs = logSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(logs.some((l: string) => l.includes("post-spawn version"))).toBe(
+      false,
+    );
+  });
+
+  // Purge warnings are ALWAYS emitted regardless of verbose mode
+  it("verbose=undefined still emits purge warnings via console.warn", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fs = createMemFs(
+      {
+        "/home/test/.config/opencode/opencode.json": JSON.stringify({
+          plugin: [`${PLUGIN_NAME}@1.0.0`],
+        }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/package.json":
+          JSON.stringify({ version: "1.0.0" }),
+        "/home/test/.cache/opencode/packages/opencode-code-review@latest/lib/file.js":
+          "content",
+      },
+      {
+        purgeErrorOn: [
+          "/home/test/.cache/opencode/packages/opencode-code-review@latest",
+        ],
+      },
+    );
+    const runner = createFakeRunner([{ status: 0 }], fs);
+
+    await runUpdate({ spawn: runner }, fs, { HOME: "/home/test" });
+
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
