@@ -53,7 +53,7 @@ export const createReviewChangesTool = (maxDiffLines: number): ToolDefinition =>
       const ctx = context as unknown as ToolContextWithShell;
       const $ = ctx.$;
       const { directory: _directory } = context;
-      const scope = args.scope ?? "staged";
+      const scope = args.scope ?? "branch";
       // Explicit `max_lines` always wins over the configured default. The
       // truncation warning below uses this same `maxLines` so it reports
       // whichever limit was actually applied (config or caller override).

@@ -25,7 +25,7 @@ ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 ${intensitySection}${thermoSection}
 
 ## 工作流程
-1. 调用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
+1. 调用 \`review_changes\` 工具获取 diff（默认 scope 为 branch）
 2. 使用 \`read\` 阅读相关文件获取上下文
 3. 使用 \`grep\` 或 \`glob\` 搜索相关代码
 4. 分析变更的影响范围
@@ -86,7 +86,7 @@ ${buildCustomRules(config.custom_rules)}${fileRulesSection}
 ${intensitySection}${thermoSection}
 
 ## Workflow
-1. Call \`review_changes\` tool to get the diff (default scope is "staged")
+1. Call \`review_changes\` tool to get the diff (default scope is "branch")
 2. Use \`read\` to read related files for context
 3. Use \`grep\` or \`glob\` to search related code
 4. Analyze the impact of changes

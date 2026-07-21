@@ -148,7 +148,7 @@ const opencodeReview: Plugin = async ({
               parts: [
                 {
                   type: "text",
-                  text: "Session completed. Running automatic code review on staged changes...",
+                  text: "Session completed. Running automatic code review on branch changes...",
                 },
               ],
             },

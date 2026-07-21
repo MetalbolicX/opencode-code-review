@@ -98,7 +98,7 @@ ${dimensionList}
 ${intensitySection}${thermoSection}
 
 ## 工作流程
-1. 使用 \`review_changes\` 工具获取 diff（默认 scope 为 staged）
+1. 使用 \`review_changes\` 工具获取 diff（默认 scope 为 branch）
 2. 对每个启用的维度，使用 \`task\` 工具 spawn 对应的子代理：
    - agent: \`<维度代理名>\`
    - message: "请审查以下代码变更" + diff 摘要
@@ -122,7 +122,7 @@ ${dimensionList}
 ${intensitySection}${thermoSection}
 
 ## Workflow
-1. Use the \`review_changes\` tool to get the diff (default scope is "staged")
+1. Use the \`review_changes\` tool to get the diff (default scope is "branch")
 2. For each enabled dimension, use the \`task\` tool to spawn the corresponding sub-agent:
    - agent: \`<dimension agent name>\`
    - message: "Review the following code changes" + diff summary
